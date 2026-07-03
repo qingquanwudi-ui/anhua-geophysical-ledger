@@ -1,0 +1,35 @@
+# Local Codex/runtime metadata
+.agents/
+.codex/
+%SystemDrive%/
+
+# Python generated files
+__pycache__/
+*.py[cod]
+
+# Local outputs, databases, uploaded files, and logs
+outputs/
+*.db
+*.sqlite
+*.sqlite3
+*.log
+
+# Source/data artifacts that should be handled outside Git
+*.xlsx
+*.xls
+*.csv
+*.tsv
+*.pdf
+*.docx
+work/report_refs/
+work/report_refs_text/
+work/report_keyword_hits.json
+work/report_text_samples.txt
+work/stats.json
+work/tz_swq2_summary.json
+work/compact.txt
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+desktop.ini
