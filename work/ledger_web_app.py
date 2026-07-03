@@ -2717,7 +2717,7 @@ def login_page(error=""):
         <label>密码</label><input type="password" name="password" autocomplete="current-password" required>
         <p><button type="submit">登录</button></p>
       </form>
-      <p class="muted">默认账号：admin，默认密码：admin123。正式使用前建议修改环境变量或代码中的默认密码。</p>
+      <p class="muted">请使用已启用的系统账号登录；旧的 admin/admin123 账号已停用。</p>
     </div>
     """
     return page_layout("系统登录", body)
