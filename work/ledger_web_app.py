@@ -21,7 +21,7 @@ from http import HTTPStatus
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
-from openpyxl import load_workbook
+from openpyxl import load_workbook, Workbook
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.section import WD_ORIENT
@@ -1137,6 +1137,429 @@ def statistics_sheet_options():
         conn.close()
     return [(row["sheet_name"], clean_sheet_display_name(row["sheet_name"])) for row in rows]
 
+
+
+
+def query_value(params, key, default=""):
+    return params.get(key, [default])[0]
+
+
+def query_values(params, key):
+    return [str(value).strip() for value in params.get(key, []) if str(value).strip()]
+
+
+def ledger_distinct_options(column):
+    allowed_columns = {"section_name": "section_name", "source_type": "source_type", "discipline": "discipline"}
+    if column not in allowed_columns:
+        return []
+    conn = connect()
+    try:
+        rows = conn.execute(
+            f"""
+            SELECT DISTINCT {allowed_columns[column]} AS value
+            FROM ledger_file
+            WHERE {allowed_columns[column]} IS NOT NULL AND TRIM({allowed_columns[column]}) <> ''
+            ORDER BY {allowed_columns[column]}
+            """
+        ).fetchall()
+    finally:
+        conn.close()
+    return [row["value"] for row in rows]
+
+
+def field_text(cells, row_index, col_index):
+    return display_cell_text(cells.get((row_index, col_index), "")).strip() if col_index else ""
+
+
+def collect_ledger_row_records(section_filters=None, source_filters=None, sheet_filters=None):
+    section_filters = [value for value in (section_filters or []) if value]
+    source_filters = [value for value in (source_filters or []) if value]
+    sheet_filters = [value for value in (sheet_filters or []) if value]
+    conn = connect()
+    records = []
+    try:
+        where_parts = ["1 = 1"]
+        args = []
+        if section_filters:
+            where_parts.append(f"f.section_name IN ({','.join('?' for _ in section_filters)})")
+            args.extend(section_filters)
+        if source_filters:
+            where_parts.append(f"f.source_type IN ({','.join('?' for _ in source_filters)})")
+            args.extend(source_filters)
+        if sheet_filters:
+            where_parts.append(f"s.sheet_name IN ({','.join('?' for _ in sheet_filters)})")
+            args.extend(sheet_filters)
+        sheets = conn.execute(
+            f"""
+            SELECT s.id AS sheet_id, s.sheet_name, s.max_row, s.max_column,
+                   f.id AS file_id, f.project_name, f.section_name, f.source_type,
+                   f.original_filename
+            FROM template_sheet s
+            JOIN template_workbook w ON w.id = s.workbook_id
+            JOIN ledger_file_version v ON v.workbook_id = w.id
+            JOIN ledger_file f ON f.current_version_id = v.id
+            WHERE {' AND '.join(where_parts)}
+            ORDER BY f.id ASC, s.sheet_index ASC, s.id ASC
+            """,
+            args,
+        ).fetchall()
+        for sheet in sheets:
+            rows = conn.execute(
+                """
+                SELECT row_index, col_index, raw_value
+                FROM template_cell
+                WHERE sheet_id = ?
+                """,
+                (sheet["sheet_id"],),
+            ).fetchall()
+            cells = {(row["row_index"], row["col_index"]): row["raw_value"] for row in rows}
+            if not cells:
+                continue
+            max_column = sheet["max_column"] or 0
+            header_row = detect_header_row(cells, sheet["max_row"] or 20)
+            header_map = {col: cells.get((header_row, col), "") for col in range(1, max_column + 1)}
+            summary_start_col = 20
+            date_col = find_col_by_keywords(header_map, ["检测日期", "试验日期", "检测时间"])
+            report_col = find_col_by_keywords(header_map, ["报告编号", "报告号"])
+            entrust_col = find_col_by_keywords(header_map, ["委托编号", "委托号"])
+            result_col = find_col_by_keywords(header_map, ["检测结果", "试验结果", "评定结果", "综合评判类别", "结论"])
+            unit_col = find_col_by_keywords(header_map, ["单位工程", "单元工程"])
+            sub_unit_col = find_col_by_keywords(header_map, ["分部工程"])
+            item_col = find_col_by_keywords(header_map, ["单元工程"])
+            location_col = find_col_by_keywords(header_map, ["工程部位", "部位", "施工部位"], summary_start_col)
+            construction_col = find_col_by_keywords(header_map, ["施工数量", "施工量"], summary_start_col)
+            testing_col = find_col_by_keywords(header_map, ["检测数量", "检测量", "检测里程"], summary_start_col)
+            ratio_col = find_col_by_keywords(header_map, ["抽检比例", "检测比例"], summary_start_col)
+            if not location_col:
+                location_col = find_col_by_keywords(header_map, ["工程部位", "部位", "施工部位"])
+            if not construction_col:
+                construction_col = find_col_by_keywords(header_map, ["施工数量", "施工量"])
+            if not testing_col:
+                testing_col = find_col_by_keywords(header_map, ["检测数量", "检测量", "检测里程"])
+            sheet_display_name = clean_sheet_display_name(sheet["sheet_name"])
+            for row_index in range(header_row + 1, (sheet["max_row"] or 0) + 1):
+                values = [display_cell_text(cells.get((row_index, col), "")).strip() for col in range(1, max_column + 1)]
+                if not any(values):
+                    continue
+                report_no = field_text(cells, row_index, report_col)
+                entrust_no = field_text(cells, row_index, entrust_col)
+                date_text = field_text(cells, row_index, date_col)
+                unit_name = field_text(cells, row_index, unit_col)
+                sub_unit_name = field_text(cells, row_index, sub_unit_col)
+                item_name = field_text(cells, row_index, item_col)
+                location_name = field_text(cells, row_index, location_col)
+                if not any([report_no, entrust_no, date_text, unit_name, location_name]):
+                    continue
+                construction_qty = parse_number_value(cells.get((row_index, construction_col), "")) if construction_col else 0
+                testing_qty = parse_number_value(cells.get((row_index, testing_col), "")) if testing_col else 0
+                records.append({
+                    "file_id": sheet["file_id"],
+                    "sheet_id": sheet["sheet_id"],
+                    "row_index": row_index,
+                    "project_name": sheet["project_name"] or "",
+                    "section_name": sheet["section_name"] or "",
+                    "source_type": sheet["source_type"] or "",
+                    "original_filename": sheet["original_filename"] or "",
+                    "sheet_name": sheet_display_name,
+                    "raw_sheet_name": sheet["sheet_name"] or "",
+                    "report_no": report_no,
+                    "entrust_no": entrust_no,
+                    "detect_date": parse_date_value(date_text),
+                    "detect_date_text": date_text,
+                    "unit_name": unit_name,
+                    "sub_unit_name": sub_unit_name,
+                    "item_name": item_name,
+                    "location_name": location_name,
+                    "result_text": field_text(cells, row_index, result_col),
+                    "construction_qty": construction_qty,
+                    "testing_qty": testing_qty,
+                    "ratio_value": parse_number_value(cells.get((row_index, ratio_col), "")) if ratio_col else 0,
+                    "result_column_found": bool(result_col),
+                    "construction_column_found": bool(construction_col),
+                    "testing_column_found": bool(testing_col),
+                })
+    finally:
+        conn.close()
+    return records
+
+
+def advanced_query_params(params):
+    start_text = query_value(params, "start_date", "")
+    end_text = query_value(params, "end_date", "")
+    start_date = parse_date_value(start_text) if start_text else None
+    end_date = parse_date_value(end_text) if end_text else None
+    if start_date and end_date and start_date > end_date:
+        start_date, end_date = end_date, start_date
+        start_text, end_text = end_text, start_text
+    try:
+        limit = int(query_value(params, "limit", "500") or "500")
+    except ValueError:
+        limit = 500
+    limit = max(50, min(limit, 5000))
+    return {
+        "section_filters": query_values(params, "section_name"),
+        "source_filters": query_values(params, "source_type"),
+        "sheet_filters": query_values(params, "sheet_name"),
+        "start_date": start_date,
+        "end_date": end_date,
+        "start_text": start_text,
+        "end_text": end_text,
+        "report_no": query_value(params, "report_no", "").strip(),
+        "entrust_no": query_value(params, "entrust_no", "").strip(),
+        "unit_name": query_value(params, "unit_name", "").strip(),
+        "location_name": query_value(params, "location_name", "").strip(),
+        "result_text": query_value(params, "result_text", "").strip(),
+        "filename": query_value(params, "filename", "").strip(),
+        "limit": limit,
+    }
+
+
+def text_contains(value, keyword):
+    if not keyword:
+        return True
+    return keyword.lower() in str(value or "").lower()
+
+
+def filter_advanced_query_records(records, query):
+    filtered = []
+    for record in records:
+        detect_date = record.get("detect_date")
+        if query["start_date"] and (not detect_date or detect_date < query["start_date"]):
+            continue
+        if query["end_date"] and (not detect_date or detect_date > query["end_date"]):
+            continue
+        if not text_contains(record.get("report_no"), query["report_no"]):
+            continue
+        if not text_contains(record.get("entrust_no"), query["entrust_no"]):
+            continue
+        if not text_contains(record.get("unit_name"), query["unit_name"]):
+            continue
+        location_blob = " ".join([record.get("location_name", ""), record.get("sub_unit_name", ""), record.get("item_name", "")])
+        if not text_contains(location_blob, query["location_name"]):
+            continue
+        if not text_contains(record.get("result_text"), query["result_text"]):
+            continue
+        if not text_contains(record.get("original_filename"), query["filename"]):
+            continue
+        filtered.append(record)
+    return filtered
+
+
+def advanced_query_records(params):
+    query = advanced_query_params(params)
+    records = collect_ledger_row_records(query["section_filters"], query["source_filters"], query["sheet_filters"])
+    return query, filter_advanced_query_records(records, query)
+
+
+def advanced_query_export_url(params):
+    pairs = []
+    for key, values in params.items():
+        if key == "limit":
+            continue
+        for value in values:
+            if str(value).strip():
+                pairs.append((key, value))
+    query = urllib.parse.urlencode(pairs)
+    return "/advanced_query_export" + (f"?{query}" if query else "")
+
+
+def query_record_date_text(record):
+    detect_date = record.get("detect_date")
+    return detect_date.isoformat() if detect_date else record.get("detect_date_text", "")
+
+
+def render_advanced_query_table(records):
+    if not records:
+        return "<tr><td colspan='13'>没有符合条件的数据</td></tr>"
+    rows = []
+    for record in records:
+        rows.append(
+            "<tr>"
+            f"<td>{html.escape(record.get('section_name', ''))}</td>"
+            f"<td>{html.escape(record.get('source_type', ''))}</td>"
+            f"<td>{html.escape(record.get('original_filename', ''))}</td>"
+            f"<td>{html.escape(record.get('sheet_name', ''))}</td>"
+            f"<td>{html.escape(str(record.get('row_index', '')))}</td>"
+            f"<td>{html.escape(query_record_date_text(record))}</td>"
+            f"<td>{html.escape(record.get('report_no', ''))}</td>"
+            f"<td>{html.escape(record.get('entrust_no', ''))}</td>"
+            f"<td>{html.escape(record.get('unit_name', ''))}</td>"
+            f"<td>{html.escape(record.get('location_name', ''))}</td>"
+            f"<td>{html.escape(record.get('result_text', ''))}</td>"
+            f"<td>{html.escape(format_stat_number(record.get('construction_qty', 0)))}</td>"
+            f"<td>{html.escape(format_stat_number(record.get('testing_qty', 0)))}</td>"
+            "</tr>"
+        )
+    return "".join(rows)
+
+
+def build_advanced_query_xlsx(records):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "高级查询结果"
+    headers = ["标段", "委托单位", "原文件名", "工作表", "Excel行号", "检测日期", "报告编号", "委托编号", "单位工程", "分部工程", "单元工程", "工程部位", "检测结果", "施工数量", "检测数量", "检测比例"]
+    ws.append(headers)
+    for record in records:
+        ws.append([
+            record.get("section_name", ""), record.get("source_type", ""), record.get("original_filename", ""),
+            record.get("sheet_name", ""), record.get("row_index", ""), query_record_date_text(record),
+            record.get("report_no", ""), record.get("entrust_no", ""), record.get("unit_name", ""),
+            record.get("sub_unit_name", ""), record.get("item_name", ""), record.get("location_name", ""),
+            record.get("result_text", ""), record.get("construction_qty", 0), record.get("testing_qty", 0),
+            record.get("ratio_value", 0),
+        ])
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = ws.dimensions
+    for index, width in enumerate([12, 36, 24, 18, 10, 14, 24, 24, 24, 24, 24, 36, 14, 12, 12, 12], start=1):
+        ws.column_dimensions[col_letter(index)].width = width
+    output = io.BytesIO()
+    wb.save(output)
+    return output.getvalue()
+
+
+def record_location_text(record):
+    return f"{record.get('original_filename', '')} / {record.get('sheet_name', '')} / 第{record.get('row_index', '')}行"
+
+
+def add_quality_issue(issues, issue_type, level, message, record=None, file_row=None):
+    source = record or file_row or {}
+    issues.append({
+        "issue_type": issue_type,
+        "level": level,
+        "message": message,
+        "file": source.get("original_filename", ""),
+        "sheet": (record or {}).get("sheet_name", ""),
+        "row_index": (record or {}).get("row_index", ""),
+        "report_no": (record or {}).get("report_no", ""),
+        "entrust_no": (record or {}).get("entrust_no", ""),
+    })
+
+
+def filename_expected_section(filename):
+    upper_name = str(filename or "").upper()
+    for section in ("Q1", "Q2", "C1", "C2", "C3", "C4"):
+        if section in upper_name:
+            return section
+    return ""
+
+
+def filename_expected_client_type(filename):
+    upper_name = str(filename or "").upper()
+    if "JW" in upper_name:
+        return "监理"
+    if "SW" in upper_name:
+        return "施工"
+    return ""
+
+
+def collect_file_quality_issues(issues):
+    conn = connect()
+    try:
+        rows = conn.execute(
+            """
+            SELECT f.id, f.original_filename, f.section_name, f.source_type, COUNT(s.id) AS sheet_count
+            FROM ledger_file f
+            LEFT JOIN ledger_file_version v ON v.id = f.current_version_id
+            LEFT JOIN template_workbook w ON w.id = v.workbook_id
+            LEFT JOIN template_sheet s ON s.workbook_id = w.id
+            GROUP BY f.id, f.original_filename, f.section_name, f.source_type
+            ORDER BY f.id ASC
+            """
+        ).fetchall()
+    finally:
+        conn.close()
+    for row in rows:
+        file_row = dict(row)
+        expected_section = filename_expected_section(row["original_filename"])
+        if expected_section and expected_section not in (row["section_name"] or ""):
+            add_quality_issue(issues, "metadata_mismatch", "高", f"文件名显示为 {expected_section}，但台账标段为 {row['section_name'] or '未填写'}。", file_row=file_row)
+        expected_client = filename_expected_client_type(row["original_filename"])
+        actual_client = client_short_type(row["source_type"] or "")
+        if expected_client and actual_client != expected_client:
+            add_quality_issue(issues, "metadata_mismatch", "中", f"文件名显示为{expected_client}台账，但委托单位识别为{actual_client}。", file_row=file_row)
+        if not row["sheet_count"]:
+            add_quality_issue(issues, "sheet_missing", "高", "文件没有解析出任何工作表。", file_row=file_row)
+
+
+def build_quality_issues():
+    records = collect_ledger_row_records()
+    issues = []
+    collect_file_quality_issues(issues)
+    report_map = {}
+    entrust_map = {}
+    for record in records:
+        report_no = (record.get("report_no") or "").strip()
+        entrust_no = (record.get("entrust_no") or "").strip()
+        if report_no:
+            report_map.setdefault(report_no, []).append(record)
+        if entrust_no:
+            entrust_map.setdefault(entrust_no, []).append(record)
+        if not report_no:
+            add_quality_issue(issues, "missing_report", "高", "报告编号为空，后续归档和追溯会受影响。", record=record)
+        if not entrust_no:
+            add_quality_issue(issues, "missing_entrust", "中", "委托编号为空，无法完整关联委托资料。", record=record)
+        if not record.get("detect_date"):
+            add_quality_issue(issues, "missing_date", "高", "检测日期为空或无法识别。", record=record)
+        if record.get("result_column_found") and not (record.get("result_text") or "").strip():
+            add_quality_issue(issues, "missing_result", "中", "检测结果为空。", record=record)
+        if not (record.get("unit_name") or record.get("location_name")):
+            add_quality_issue(issues, "missing_location", "中", "单位工程和工程部位均为空。", record=record)
+        construction_qty = record.get("construction_qty", 0) or 0
+        testing_qty = record.get("testing_qty", 0) or 0
+        if construction_qty < 0 or testing_qty < 0:
+            add_quality_issue(issues, "quantity_abnormal", "高", "数量字段出现负数。", record=record)
+        if record.get("construction_column_found") and record.get("testing_column_found"):
+            if construction_qty > 0 and testing_qty > construction_qty:
+                add_quality_issue(issues, "quantity_abnormal", "中", "检测数量大于施工数量，请核对数量单位或录入值。", record=record)
+            if construction_qty > 0 and testing_qty == 0:
+                add_quality_issue(issues, "quantity_abnormal", "中", "有施工数量但检测数量为 0。", record=record)
+    for report_no, items in report_map.items():
+        if len(items) > 1:
+            locations = "；".join(record_location_text(item) for item in items[:5])
+            add_quality_issue(issues, "duplicate_report", "高", f"报告编号 {report_no} 出现 {len(items)} 次：{locations}", record=items[0])
+    for entrust_no, items in entrust_map.items():
+        if len(items) > 1:
+            add_quality_issue(issues, "duplicate_entrust", "中", f"委托编号 {entrust_no} 出现 {len(items)} 次，请确认是否为同一委托下多条检测记录。", record=items[0])
+    return records, issues
+
+
+def issue_type_label(issue_type):
+    return {
+        "metadata_mismatch": "文件信息不一致", "sheet_missing": "工作表缺失", "missing_report": "报告编号缺失",
+        "missing_entrust": "委托编号缺失", "missing_date": "检测日期缺失", "missing_result": "检测结果缺失",
+        "missing_location": "工程部位缺失", "quantity_abnormal": "数量异常", "duplicate_report": "报告编号重复",
+        "duplicate_entrust": "委托编号重复",
+    }.get(issue_type, issue_type)
+
+
+def render_quality_issue_table(issues):
+    if not issues:
+        return "<p class='muted'>当前未发现异常。</p>"
+    grouped = {}
+    for issue in issues:
+        grouped.setdefault(issue["issue_type"], []).append(issue)
+    sections = []
+    for issue_type, items in grouped.items():
+        rows = []
+        for issue in items[:200]:
+            rows.append(
+                "<tr>"
+                f"<td>{html.escape(issue.get('level', ''))}</td>"
+                f"<td>{html.escape(issue.get('message', ''))}</td>"
+                f"<td>{html.escape(issue.get('file', ''))}</td>"
+                f"<td>{html.escape(issue.get('sheet', ''))}</td>"
+                f"<td>{html.escape(str(issue.get('row_index', '')))}</td>"
+                f"<td>{html.escape(issue.get('report_no', ''))}</td>"
+                f"<td>{html.escape(issue.get('entrust_no', ''))}</td>"
+                "</tr>"
+            )
+        more = f"<p class='muted'>仅显示前 200 条，共 {len(items)} 条。</p>" if len(items) > 200 else ""
+        sections.append(
+            f"<details class='stat-section' open><summary>{html.escape(issue_type_label(issue_type))}（{len(items)}）</summary>"
+            "<table class='ledger-table'><thead><tr><th>级别</th><th>问题说明</th><th>文件</th><th>工作表</th><th>行号</th><th>报告编号</th><th>委托编号</th></tr></thead>"
+            f"<tbody>{''.join(rows)}</tbody></table>{more}</details>"
+        )
+    return "".join(sections)
 
 def stat_ratio_text(item):
     return f"{item['ratio_value']:.2f}%" if item.get("ratio_value") else ""
@@ -2695,6 +3118,8 @@ def page_layout(title, body, user=None):
     <nav style="margin-top:8px">
       <a href="/">台账管理</a>
       <a href="/preview">台账信息查询</a>
+      <a href="/advanced_query">高级查询</a>
+      <a href="/quality_checks">异常检查</a>
       <a href="/statistics">检测数据统计</a>
       <a href="/unit_statistics">单位工程统计</a>
       {admin_nav}
@@ -2779,6 +3204,23 @@ class AppHandler(BaseHTTPRequestHandler):
                 file_id = int(params["file_id"][0]) if "file_id" in params else None
                 sheet_id = int(params["sheet_id"][0]) if "sheet_id" in params else None
                 self.send_html(preview_page(user, file_id, sheet_id))
+        elif parsed.path == "/advanced_query":
+            user = self.require_user()
+            if user:
+                params = urllib.parse.parse_qs(parsed.query)
+                self.send_html(advanced_query_page(user, params))
+        elif parsed.path == "/advanced_query_export":
+            user = self.require_user()
+            if user:
+                params = urllib.parse.parse_qs(parsed.query)
+                query, records = advanced_query_records(params)
+                data = build_advanced_query_xlsx(records)
+                filename = f"台账高级查询结果_{dt.datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+                self.send_xlsx(data, filename)
+        elif parsed.path == "/quality_checks":
+            user = self.require_user()
+            if user:
+                self.send_html(quality_checks_page(user))
         elif parsed.path == "/statistics":
             user = self.require_user()
             if user:
@@ -3157,6 +3599,15 @@ class AppHandler(BaseHTTPRequestHandler):
         encoded = urllib.parse.quote(filename)
         self.send_response(200)
         self.send_header("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+        self.send_header("Content-Disposition", f"attachment; filename*=UTF-8''{encoded}")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def send_xlsx(self, data, filename):
+        encoded = urllib.parse.quote(filename)
+        self.send_response(200)
+        self.send_header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         self.send_header("Content-Disposition", f"attachment; filename*=UTF-8''{encoded}")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
@@ -3684,6 +4135,77 @@ def statistics_page(user, params):
     """
     return page_layout("检测数据统计", body, user)
 
+
+
+
+def advanced_query_page(user, params):
+    query, records = advanced_query_records(params)
+    display_records = records[:query["limit"]]
+    section_selector_html = checkbox_dropdown("section_name", [(option, option) for option in ledger_distinct_options("section_name")], query["section_filters"], "全部标段")
+    source_selector_html = checkbox_dropdown("source_type", [(option, option) for option in ledger_distinct_options("source_type")], query["source_filters"], "全部委托单位")
+    sheet_selector_html = checkbox_dropdown("sheet_name", statistics_sheet_options(), query["sheet_filters"], "全部检测类型")
+    limit_options = "".join(f"<option value='{value}' {'selected' if value == query['limit'] else ''}>{value}</option>" for value in (100, 500, 1000, 2000, 5000))
+    export_url = advanced_query_export_url(params)
+    body = f"""
+    <div class="panel">
+      <h2>高级查询</h2>
+      <form method="get" action="/advanced_query">
+        <div class="grid">
+          <div><label>标段</label>{section_selector_html}</div>
+          <div><label>检测类型/工作表</label>{sheet_selector_html}</div>
+          <div><label>委托单位</label>{source_selector_html}</div>
+          <div><label>原文件名</label><input name="filename" value="{html.escape(query['filename'])}" placeholder="例如 TZ-SWQ2"></div>
+          <div><label>开始日期</label><input type="date" name="start_date" value="{html.escape(query['start_text'])}"></div>
+          <div><label>结束日期</label><input type="date" name="end_date" value="{html.escape(query['end_text'])}"></div>
+          <div><label>报告编号</label><input name="report_no" value="{html.escape(query['report_no'])}" placeholder="支持模糊查询"></div>
+          <div><label>委托编号</label><input name="entrust_no" value="{html.escape(query['entrust_no'])}" placeholder="支持模糊查询"></div>
+          <div><label>单位工程</label><input name="unit_name" value="{html.escape(query['unit_name'])}" placeholder="支持模糊查询"></div>
+          <div><label>工程部位/分项</label><input name="location_name" value="{html.escape(query['location_name'])}" placeholder="支持模糊查询"></div>
+          <div><label>检测结果</label><input name="result_text" value="{html.escape(query['result_text'])}" placeholder="例如 合格"></div>
+          <div><label>页面显示条数</label><select name="limit">{limit_options}</select></div>
+          <div style="align-self:end"><button type="submit">查询</button></div>
+        </div>
+      </form>
+    </div>
+    <div class="kpi-grid">
+      <div class="kpi"><span>符合条件记录</span><strong>{len(records)}</strong></div>
+      <div class="kpi"><span>页面显示</span><strong>{len(display_records)}</strong></div>
+      <div class="kpi"><span>涉及文件</span><strong>{len({item.get('original_filename') for item in records})}</strong></div>
+      <div class="kpi"><span>涉及标段</span><strong>{len({item.get('section_name') for item in records})}</strong></div>
+      <div class="kpi"><span>检测类型</span><strong>{len({item.get('sheet_name') for item in records})}</strong></div>
+    </div>
+    <div class="panel">
+      <p><a class="button" href="{html.escape(export_url)}">导出当前查询结果为 Excel</a></p>
+      <table class="ledger-table">
+        <thead><tr><th>标段</th><th>委托单位</th><th>原文件</th><th>工作表</th><th>行号</th><th>检测日期</th><th>报告编号</th><th>委托编号</th><th>单位工程</th><th>工程部位</th><th>检测结果</th><th>施工数量</th><th>检测数量</th></tr></thead>
+        <tbody>{render_advanced_query_table(display_records)}</tbody>
+      </table>
+    </div>
+    {statistics_page_script()}
+    """
+    return page_layout("高级查询", body, user)
+
+
+def quality_checks_page(user):
+    records, issues = build_quality_issues()
+    high_count = sum(1 for issue in issues if issue.get("level") == "高")
+    middle_count = sum(1 for issue in issues if issue.get("level") == "中")
+    issue_type_count = len({issue.get("issue_type") for issue in issues})
+    body = f"""
+    <div class="panel">
+      <h2>异常数据检查</h2>
+      <p class="muted">系统会检查报告编号重复、编号缺失、日期缺失、数量异常、检测结果缺失，以及文件名与标段/委托类型不一致等问题。</p>
+    </div>
+    <div class="kpi-grid">
+      <div class="kpi"><span>检查记录</span><strong>{len(records)}</strong></div>
+      <div class="kpi"><span>异常总数</span><strong>{len(issues)}</strong></div>
+      <div class="kpi"><span>高风险</span><strong>{high_count}</strong></div>
+      <div class="kpi"><span>中风险</span><strong>{middle_count}</strong></div>
+      <div class="kpi"><span>异常类型</span><strong>{issue_type_count}</strong></div>
+    </div>
+    <div class="panel">{render_quality_issue_table(issues)}</div>
+    """
+    return page_layout("异常数据检查", body, user)
 
 def unit_statistics_page(user, params):
     stat_params = parse_statistics_params(params)
