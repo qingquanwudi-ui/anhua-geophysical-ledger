@@ -771,6 +771,8 @@ def monthly_report_table_type(sheet_name, client_type):
         return f"回填灌浆质量单孔注浆试验检测{suffix}"
     if "锚索" in name and "张拉" in name:
         return f"锚索多循环张拉试验完成情况{suffix}"
+    if "预应力锚杆" in name or ("锚杆" in name and "张拉" in name):
+        return f"预应力锚杆张拉试验完成情况{suffix}"
     if "桩身完整性" in name:
         return f"桩身完整性检测完成情况{suffix}"
     if "松弛圈" in name:
@@ -896,10 +898,35 @@ def collect_stat_records(start_date, end_date, source_filters=None, sheet_filter
             grout_requirement_col = find_col_by_keywords(header_map, ["设计要求"], summary_start_col)
             grout_volume_col = find_col_by_keywords_excluding(header_map, ["初始10min内注浆量", "注浆量"], ["设计要求", "规定压力"], summary_start_col)
             grout_result_col = find_col_by_keywords(header_map, ["检测结果"], summary_start_col)
+            report_no_col = find_col_by_keywords(header_map, ["报告编号", "报告号"])
+            entrust_no_col = find_col_by_keywords(header_map, ["委托编号", "委托号"])
+            result_col = find_col_by_keywords(header_map, ["检测结果", "试验结果", "综合评判类别", "评判类别", "结论"])
+            hole_no_col = find_col_by_keywords(header_map, ["钻孔编号", "锚索孔号", "检查孔编号", "孔号", "锚索编号"])
+            depth_start_1_col = find_col_by_keywords(header_map, ["起始深度1", "起始深度"])
+            depth_end_1_col = find_col_by_keywords(header_map, ["终点深度1", "终点深度"])
+            depth_start_2_col = find_col_by_keywords(header_map, ["起始深度2"])
+            depth_end_2_col = find_col_by_keywords(header_map, ["终点深度2"])
+            mileage_col = find_col_by_keywords(header_map, ["检测里程", "里程"])
+            anchor_no_col = find_col_by_keywords(header_map, ["锚索编号", "锚杆编号"])
+            spec_col = find_col_by_keywords(header_map, ["规格/型号", "锚索规格", "锚杆规格", "规格"])
+            anchor_length_col = find_col_by_keywords(header_map, ["锚索长度", "锚杆长度", "杆长", "桩    长", "桩长"])
+            anchorage_length_col = find_col_by_keywords(header_map, ["锚固长度"])
+            free_length_col = find_col_by_keywords(header_map, ["自由段长度"])
+            elastic_modulus_col = find_col_by_keywords(header_map, ["弹性模量"])
+            load_requirement_col = find_col_by_keywords(header_map, ["分级荷载设计要求"])
+            design_anchor_force_col = find_col_by_keywords(header_map, ["设计锚固力", "设计拉拔力", "合格抗拔力"])
+            pile_type_col = find_col_by_keywords(header_map, ["桩    型", "桩型"])
+            pile_diameter_col = find_col_by_keywords(header_map, ["桩    径", "桩径"])
+            pile_top_col = find_col_by_keywords(header_map, ["桩顶高程"])
+            category_col = find_col_by_keywords(header_map, ["综合评判类别", "评判类别"])
+            hole_count_col = find_col_by_keywords(header_map, ["检测孔数量", "检查孔数量"])
+            group_count_col = find_col_by_keywords(header_map, ["组数"])
+            detection_type_col = find_col_by_keywords(header_map, ["检测类型", "试验类型"])
+            remark_col = find_col_by_keywords(header_map, ["备注"])
             if not construction_col:
                 construction_col = find_col_by_keywords(header_map, ["施工数量", "施工量"])
             if not testing_col:
-                testing_col = find_col_by_keywords(header_map, ["检测数量", "检测量"])
+                testing_col = find_col_by_keywords(header_map, ["检测数量", "检测量", "检测里程", "检测孔数量", "组数"])
             if not location_col:
                 location_col = find_col_by_keywords(header_map, ["工程部位", "部位", "施工部位"])
             if not date_col:
@@ -916,17 +943,44 @@ def collect_stat_records(start_date, end_date, source_filters=None, sheet_filter
                         "source_type": sheet["source_type"] or "未填写委托单位",
                         "client_type": client_type,
                         "section_name": sheet["section_name"] or "",
+                        "original_filename": sheet["original_filename"] or "",
                         "sheet_name": sheet_display_name,
                         "report_table_type": report_table_type,
                         "unit_name": unit_name or "",
                         "location_name": location_name,
                         "part_name": part_name,
+                        "report_no": display_cell_text(cells.get((row_index, report_no_col), "")) if report_no_col else "",
+                        "entrust_no": display_cell_text(cells.get((row_index, entrust_no_col), "")) if entrust_no_col else "",
+                        "result_text": display_cell_text(cells.get((row_index, result_col), "")) if result_col else "",
                         "construction_qty": parse_number_value(cells.get((row_index, construction_col), "")) if construction_col else 0,
                         "testing_qty": parse_number_value(cells.get((row_index, testing_col), "")) if testing_col else 0,
                         "ratio_value": parse_number_value(cells.get((row_index, ratio_col), "")) if ratio_col else 0,
                         "length_value": display_cell_text(cells.get((row_index, length_col), "")) if length_col else "",
                         "diameter_value": display_cell_text(cells.get((row_index, diameter_col), "")) if diameter_col else "",
                         "design_force_value": display_cell_text(cells.get((row_index, design_force_col), "")) if design_force_col else "",
+                        "hole_no": display_cell_text(cells.get((row_index, hole_no_col), "")) if hole_no_col else "",
+                        "depth_start_1": display_cell_text(cells.get((row_index, depth_start_1_col), "")) if depth_start_1_col else "",
+                        "depth_end_1": display_cell_text(cells.get((row_index, depth_end_1_col), "")) if depth_end_1_col else "",
+                        "depth_start_2": display_cell_text(cells.get((row_index, depth_start_2_col), "")) if depth_start_2_col else "",
+                        "depth_end_2": display_cell_text(cells.get((row_index, depth_end_2_col), "")) if depth_end_2_col else "",
+                        "mileage_value": parse_number_value(cells.get((row_index, mileage_col), "")) if mileage_col else 0,
+                        "mileage_text": display_cell_text(cells.get((row_index, mileage_col), "")) if mileage_col else "",
+                        "anchor_no": display_cell_text(cells.get((row_index, anchor_no_col), "")) if anchor_no_col else "",
+                        "spec_text": display_cell_text(cells.get((row_index, spec_col), "")) if spec_col else "",
+                        "anchor_length_text": display_cell_text(cells.get((row_index, anchor_length_col), "")) if anchor_length_col else "",
+                        "anchorage_length_text": display_cell_text(cells.get((row_index, anchorage_length_col), "")) if anchorage_length_col else "",
+                        "free_length_text": display_cell_text(cells.get((row_index, free_length_col), "")) if free_length_col else "",
+                        "elastic_modulus_text": display_cell_text(cells.get((row_index, elastic_modulus_col), "")) if elastic_modulus_col else "",
+                        "load_requirement_text": display_cell_text(cells.get((row_index, load_requirement_col), "")) if load_requirement_col else "",
+                        "design_anchor_force_text": display_cell_text(cells.get((row_index, design_anchor_force_col), "")) if design_anchor_force_col else "",
+                        "pile_type_text": display_cell_text(cells.get((row_index, pile_type_col), "")) if pile_type_col else "",
+                        "pile_diameter_text": display_cell_text(cells.get((row_index, pile_diameter_col), "")) if pile_diameter_col else "",
+                        "pile_top_text": display_cell_text(cells.get((row_index, pile_top_col), "")) if pile_top_col else "",
+                        "category_text": display_cell_text(cells.get((row_index, category_col), "")) if category_col else "",
+                        "hole_count": parse_number_value(cells.get((row_index, hole_count_col), "")) if hole_count_col else 0,
+                        "group_count": parse_number_value(cells.get((row_index, group_count_col), "")) if group_count_col else 0,
+                        "detection_type_text": display_cell_text(cells.get((row_index, detection_type_col), "")) if detection_type_col else "",
+                        "remark_text": display_cell_text(cells.get((row_index, remark_col), "")) if remark_col else "",
                         "min_value": parse_number_value(cells.get((row_index, min_value_col), "")) if min_value_col else 0,
                         "max_value": parse_number_value(cells.get((row_index, max_value_col), "")) if max_value_col else 0,
                         "min_value_text": display_cell_text(cells.get((row_index, min_value_col), "")) if min_value_col else "",
@@ -980,6 +1034,15 @@ def statistics_unit_options(source_filters=None, sheet_filters=None):
     return unit_options_from_records(records)
 
 
+def stat_depth_range_text(record):
+    ranges = []
+    if record.get("depth_start_1") or record.get("depth_end_1"):
+        ranges.append(f"{record.get('depth_start_1', '')}-{record.get('depth_end_1', '')}".strip("-"))
+    if record.get("depth_start_2") or record.get("depth_end_2"):
+        ranges.append(f"{record.get('depth_start_2', '')}-{record.get('depth_end_2', '')}".strip("-"))
+    return "；".join(value for value in ranges if value)
+
+
 def aggregate_stat_records(records):
     grouped = {}
     for record in records:
@@ -1003,7 +1066,30 @@ def aggregate_stat_records(records):
                 "row_count": 0,
                 "construction_qty": 0,
                 "testing_qty": 0,
+                "mileage_qty": 0,
+                "hole_count": 0,
+                "group_count": 0,
                 "ratio_value": 0,
+                "report_nos": [],
+                "entrust_nos": [],
+                "result_texts": [],
+                "hole_nos": [],
+                "depth_ranges": [],
+                "mileage_texts": [],
+                "anchor_nos": [],
+                "spec_texts": [],
+                "anchor_length_texts": [],
+                "anchorage_length_texts": [],
+                "free_length_texts": [],
+                "elastic_modulus_texts": [],
+                "load_requirement_texts": [],
+                "design_anchor_force_texts": [],
+                "pile_type_texts": [],
+                "pile_diameter_texts": [],
+                "pile_top_texts": [],
+                "category_texts": [],
+                "detection_type_texts": [],
+                "remark_texts": [],
                 "diameter_values": [],
                 "design_force_values": [],
                 "min_value_texts": [],
@@ -1031,7 +1117,30 @@ def aggregate_stat_records(records):
         item["row_count"] += record["row_count"]
         item["construction_qty"] += record["construction_qty"]
         item["testing_qty"] += record["testing_qty"]
+        item["mileage_qty"] += record.get("mileage_value", 0)
+        item["hole_count"] += record.get("hole_count", 0)
+        item["group_count"] += record.get("group_count", 0)
         item["ratio_value"] = record["ratio_value"] or item["ratio_value"]
+        append_unique_text(item["report_nos"], record.get("report_no", ""))
+        append_unique_text(item["entrust_nos"], record.get("entrust_no", ""))
+        append_unique_text(item["result_texts"], record.get("result_text", ""))
+        append_unique_text(item["hole_nos"], record.get("hole_no", ""))
+        append_unique_text(item["depth_ranges"], stat_depth_range_text(record))
+        append_unique_text(item["mileage_texts"], record.get("mileage_text", ""))
+        append_unique_text(item["anchor_nos"], record.get("anchor_no", ""))
+        append_unique_text(item["spec_texts"], record.get("spec_text", ""))
+        append_unique_text(item["anchor_length_texts"], record.get("anchor_length_text", ""))
+        append_unique_text(item["anchorage_length_texts"], record.get("anchorage_length_text", ""))
+        append_unique_text(item["free_length_texts"], record.get("free_length_text", ""))
+        append_unique_text(item["elastic_modulus_texts"], record.get("elastic_modulus_text", ""))
+        append_unique_text(item["load_requirement_texts"], record.get("load_requirement_text", ""))
+        append_unique_text(item["design_anchor_force_texts"], record.get("design_anchor_force_text", ""))
+        append_unique_text(item["pile_type_texts"], record.get("pile_type_text", ""))
+        append_unique_text(item["pile_diameter_texts"], record.get("pile_diameter_text", ""))
+        append_unique_text(item["pile_top_texts"], record.get("pile_top_text", ""))
+        append_unique_text(item["category_texts"], record.get("category_text", ""))
+        append_unique_text(item["detection_type_texts"], record.get("detection_type_text", ""))
+        append_unique_text(item["remark_texts"], record.get("remark_text", ""))
         if record["diameter_value"]:
             if record["diameter_value"] not in item["diameter_values"]:
                 item["diameter_values"].append(record["diameter_value"])
@@ -1051,6 +1160,26 @@ def aggregate_stat_records(records):
         item["class_four_qty"] += record["class_four_qty"]
     result = []
     for item in grouped.values():
+        item["report_no_text"] = "\n".join(item.pop("report_nos"))
+        item["entrust_no_text"] = "\n".join(item.pop("entrust_nos"))
+        item["result_text"] = "\n".join(item.pop("result_texts"))
+        item["hole_no_text"] = "\n".join(item.pop("hole_nos"))
+        item["depth_range_text"] = "\n".join(item.pop("depth_ranges"))
+        item["mileage_text"] = "\n".join(item.pop("mileage_texts"))
+        item["anchor_no_text"] = "\n".join(item.pop("anchor_nos"))
+        item["spec_text"] = "\n".join(item.pop("spec_texts"))
+        item["anchor_length_text"] = "\n".join(item.pop("anchor_length_texts"))
+        item["anchorage_length_text"] = "\n".join(item.pop("anchorage_length_texts"))
+        item["free_length_text"] = "\n".join(item.pop("free_length_texts"))
+        item["elastic_modulus_text"] = "\n".join(item.pop("elastic_modulus_texts"))
+        item["load_requirement_text"] = "\n".join(item.pop("load_requirement_texts"))
+        item["design_anchor_force_text"] = "\n".join(item.pop("design_anchor_force_texts"))
+        item["pile_type_text"] = "\n".join(item.pop("pile_type_texts"))
+        item["pile_diameter_text"] = "\n".join(item.pop("pile_diameter_texts"))
+        item["pile_top_text"] = "\n".join(item.pop("pile_top_texts"))
+        item["category_text"] = "\n".join(item.pop("category_texts"))
+        item["detection_type_text"] = "\n".join(item.pop("detection_type_texts"))
+        item["remark_text"] = "\n".join(item.pop("remark_texts"))
         item["diameter_text"] = "\n".join(item.pop("diameter_values"))
         item["design_force_text"] = "\n".join(item.pop("design_force_values"))
         item["min_value_text"] = "\n".join(item.pop("min_value_texts"))
@@ -1743,6 +1872,266 @@ def render_nondestructive_total_row(items):
     )
 
 
+def stat_table_kind(items):
+    text = " ".join(
+        f"{item.get('sheet_name', '')} {item.get('report_table_type', '')}"
+        for item in items
+    )
+    if "锚杆无损" in text:
+        return "nondestructive"
+    if "锚杆拉拔" in text:
+        return "pullout"
+    if "回填灌浆" in text:
+        return "grout"
+    if "钻孔摄像" in text or "钻孔成像" in text:
+        return "borehole_imaging"
+    if "锚索" in text and "张拉" in text:
+        return "anchor_cable_tension"
+    if "预应力锚杆" in text or ("锚杆" in text and "张拉" in text):
+        return "prestressed_anchor"
+    if "桩身完整性" in text:
+        return "pile_integrity"
+    if "松弛圈" in text:
+        return "relaxation_circle"
+    if "弹性波" in text:
+        return "elastic_wave"
+    return "general"
+
+
+def ratio_text(testing, construction):
+    return f"{testing / construction * 100:.2f}" if construction else ""
+
+
+def preferred_qty(item, *keys):
+    for key in keys:
+        value = item.get(key, 0)
+        if value:
+            return value
+    return 0
+
+
+def build_total_row(items, column_count, construction_key="construction_qty", testing_key="testing_qty"):
+    construction = sum(item.get(construction_key, 0) for item in items)
+    testing = sum(item.get(testing_key, 0) for item in items)
+    row = ["合计", format_stat_number(construction), format_stat_number(testing), ratio_text(testing, construction)]
+    return row + ["/"] * max(0, column_count - len(row))
+
+
+def build_stat_table_data(items):
+    kind = stat_table_kind(items)
+    if kind == "nondestructive":
+        headers = ["工程部位", "施工数量(根)", "检测数量(根)", "抽检比例(%)", "I", "II", "III", "IV", "合格率(%)"]
+        rows = [
+            [
+                item["part_name"],
+                format_stat_number(item["construction_qty"]),
+                format_stat_number(item["testing_qty"]),
+                f"{item['ratio_value']:.2f}" if item["ratio_value"] else "",
+                format_stat_number(item["class_one_qty"]),
+                format_stat_number(item["class_two_qty"]),
+                format_stat_number(item["class_three_qty"]),
+                format_stat_number(item["class_four_qty"]),
+                f"{item['pass_rate_value']:.2f}" if item.get("pass_rate_value") else "100.00",
+            ]
+            for item in items
+        ]
+        construction = sum(item["construction_qty"] for item in items)
+        testing = sum(item["testing_qty"] for item in items)
+        class_one = sum(item["class_one_qty"] for item in items)
+        class_two = sum(item["class_two_qty"] for item in items)
+        class_three = sum(item["class_three_qty"] for item in items)
+        class_four = sum(item["class_four_qty"] for item in items)
+        rows.append([
+            "合计",
+            format_stat_number(construction),
+            format_stat_number(testing),
+            ratio_text(testing, construction),
+            format_stat_number(class_one),
+            format_stat_number(class_two),
+            format_stat_number(class_three),
+            format_stat_number(class_four),
+            "100.00" if testing and (class_three + class_four == 0) else "",
+        ])
+        return kind, headers, rows
+    if kind == "pullout":
+        headers = ["工程部位", "施工数量(根)", "检测数量(根)", "抽检比例(%)", "锚杆直径(mm)", "设计拉拔力值(KN)", "最小值", "最大值", "合格率(%)"]
+        rows = [
+            [
+                item["part_name"],
+                format_stat_number(item["construction_qty"]),
+                format_stat_number(item["testing_qty"]),
+                f"{item['ratio_value']:.2f}" if item["ratio_value"] else "",
+                item["diameter_text"],
+                item["design_force_text"],
+                plain_stat_min_text(item),
+                plain_stat_max_text(item),
+                format_stat_number(item["pass_rate_value"]) if item.get("pass_rate_value") else "100",
+            ]
+            for item in items
+        ]
+        rows.append(build_total_row(items, len(headers)))
+        return kind, headers, rows
+    if kind == "grout":
+        headers = ["工程部位", "检查孔编号1", "检查孔编号2", "检查桩号1", "检查桩号2", "孔口高程1", "孔口高程2", "设计压力(Mpa）", "设计要求", "初始10min注浆量1(L)", "初始10min注浆量2(L)", "检测结果"]
+        rows = [
+            [
+                item["part_name"],
+                item.get("grout_hole_1", ""),
+                item.get("grout_hole_2", ""),
+                item.get("grout_station_1", ""),
+                item.get("grout_station_2", ""),
+                item.get("grout_elevation_1", ""),
+                item.get("grout_elevation_2", ""),
+                item.get("grout_pressure", ""),
+                item.get("grout_requirement", ""),
+                format_decimal_number(item.get("grout_volume_1", ""), 3),
+                format_decimal_number(item.get("grout_volume_2", ""), 3),
+                item.get("grout_result", "") or item.get("result_text", ""),
+            ]
+            for item in items
+        ]
+        return kind, headers, rows
+    if kind == "borehole_imaging":
+        headers = ["工程部位", "孔号", "检测孔数", "检测里程(m)", "起止深度(m)", "报告数", "报告编号"]
+        rows = [
+            [
+                item["part_name"],
+                item.get("hole_no_text", ""),
+                format_stat_number(item.get("row_count", 0)),
+                format_stat_number(preferred_qty(item, "mileage_qty", "testing_qty")),
+                item.get("depth_range_text", ""),
+                str(item.get("row_count", 0)),
+                item.get("report_no_text", ""),
+            ]
+            for item in items
+        ]
+        total_mileage = sum(preferred_qty(item, "mileage_qty", "testing_qty") for item in items)
+        rows.append(["合计", "/", format_stat_number(sum(item.get("row_count", 0) for item in items)), format_stat_number(total_mileage), "/", str(sum(item.get("row_count", 0) for item in items)), "/"])
+        return kind, headers, rows
+    if kind == "anchor_cable_tension":
+        headers = ["工程部位", "施工数量(根)", "检测数量(根)", "检测比例(%)", "锚索编号", "规格/型号", "锚索长度(m)", "锚固长度(m)", "自由段长度(m)", "设计锚固力", "检测结果"]
+        rows = [
+            [
+                item["part_name"],
+                format_stat_number(item["construction_qty"]),
+                format_stat_number(item["testing_qty"]),
+                ratio_text(item["testing_qty"], item["construction_qty"]),
+                item.get("anchor_no_text", ""),
+                item.get("spec_text", ""),
+                item.get("anchor_length_text", ""),
+                item.get("anchorage_length_text", ""),
+                item.get("free_length_text", ""),
+                item.get("design_anchor_force_text", "") or item.get("design_force_text", ""),
+                item.get("result_text", ""),
+            ]
+            for item in items
+        ]
+        rows.append(build_total_row(items, len(headers)))
+        return kind, headers, rows
+    if kind == "prestressed_anchor":
+        headers = ["工程部位", "施工数量(根)", "检测数量(根)", "检测比例(%)", "锚杆直径", "锚杆长度(m)", "锚固长度(m)", "自由段长度(m)", "弹性模量", "设计锚固力", "检测结果"]
+        rows = [
+            [
+                item["part_name"],
+                format_stat_number(item["construction_qty"]),
+                format_stat_number(item["testing_qty"]),
+                ratio_text(item["testing_qty"], item["construction_qty"]),
+                item.get("diameter_text", ""),
+                item.get("anchor_length_text", ""),
+                item.get("anchorage_length_text", ""),
+                item.get("free_length_text", ""),
+                item.get("elastic_modulus_text", ""),
+                item.get("design_anchor_force_text", "") or item.get("design_force_text", ""),
+                item.get("result_text", ""),
+            ]
+            for item in items
+        ]
+        rows.append(build_total_row(items, len(headers)))
+        return kind, headers, rows
+    if kind == "pile_integrity":
+        headers = ["工程部位", "检测数量(根)", "桩型", "桩长", "桩径", "桩顶高程", "综合评判类别", "检测结果", "报告数"]
+        rows = [
+            [
+                item["part_name"],
+                format_stat_number(item["testing_qty"]),
+                item.get("pile_type_text", ""),
+                item.get("anchor_length_text", ""),
+                item.get("pile_diameter_text", ""),
+                item.get("pile_top_text", ""),
+                item.get("category_text", ""),
+                item.get("result_text", ""),
+                str(item.get("row_count", 0)),
+            ]
+            for item in items
+        ]
+        rows.append(["合计", format_stat_number(sum(item.get("testing_qty", 0) for item in items)), "/", "/", "/", "/", "/", "/", str(sum(item.get("row_count", 0) for item in items))])
+        return kind, headers, rows
+    if kind == "relaxation_circle":
+        headers = ["工程部位", "检测孔数量", "报告数", "检测结果", "报告编号"]
+        rows = [
+            [
+                item["part_name"],
+                format_stat_number(preferred_qty(item, "hole_count", "testing_qty", "row_count")),
+                str(item.get("row_count", 0)),
+                item.get("result_text", ""),
+                item.get("report_no_text", ""),
+            ]
+            for item in items
+        ]
+        rows.append(["合计", format_stat_number(sum(preferred_qty(item, "hole_count", "testing_qty", "row_count") for item in items)), str(sum(item.get("row_count", 0) for item in items)), "/", "/"])
+        return kind, headers, rows
+    if kind == "elastic_wave":
+        headers = ["工程部位", "组数", "检测类型", "检测结果", "报告数", "报告编号"]
+        rows = [
+            [
+                item["part_name"],
+                format_stat_number(preferred_qty(item, "group_count", "testing_qty", "row_count")),
+                item.get("detection_type_text", ""),
+                item.get("result_text", ""),
+                str(item.get("row_count", 0)),
+                item.get("report_no_text", ""),
+            ]
+            for item in items
+        ]
+        rows.append(["合计", format_stat_number(sum(preferred_qty(item, "group_count", "testing_qty", "row_count") for item in items)), "/", "/", str(sum(item.get("row_count", 0) for item in items)), "/"])
+        return kind, headers, rows
+    headers = ["委托单位", "标段", "委托类别", "检测项目", "统计表类型", "工程部位/单元工程", "检测组数", "施工数量", "检测数量", "检测比例", "检测结果", "报告编号"]
+    rows = [
+        [
+            item["source_type"],
+            item["section_name"],
+            item["client_type"],
+            item["sheet_name"],
+            item["report_table_type"],
+            item["part_name"],
+            str(item["row_count"]),
+            format_stat_number(item["construction_qty"]),
+            format_stat_number(item["testing_qty"]),
+            ratio_text(item["testing_qty"], item["construction_qty"]),
+            item.get("result_text", ""),
+            item.get("report_no_text", ""),
+        ]
+        for item in items
+    ]
+    rows.append(build_total_row(items, len(headers)))
+    return kind, headers, rows
+
+
+def render_simple_stat_table(headers, rows, table_type="general"):
+    header_html = "".join(f"<th>{html.escape(header)}</th>" for header in headers)
+    body_rows = []
+    for row_index, row in enumerate(rows):
+        row_class = " class='stat-total'" if row and row[0] == "合计" else ""
+        cells = "".join(f"<td>{stat_text(value)}</td>" for value in row)
+        body_rows.append(f"<tr{row_class}>{cells}</tr>")
+    return (
+        f"<table class='ledger-table {html.escape(table_type)}-table'>"
+        f"<thead><tr>{header_html}</tr></thead>"
+        f"<tbody>{''.join(body_rows)}</tbody>"
+        "</table>"
+    )
+
+
 def build_item_stat_tables(grouped):
     section_map = {}
     section_order = []
@@ -1778,6 +2167,20 @@ def build_item_stat_tables(grouped):
     for index, key in enumerate(arranged_keys, 1):
         section = section_map[key]
         items = section["items"]
+        table_type, headers, rows = build_stat_table_data(items)
+        first_item = items[0] if items else {}
+        tables.append({
+            "id": f"detail_{index}",
+            "group": "各检测项分部位统计",
+            "title": section["title"],
+            "headers": headers,
+            "rows": rows,
+            "type": table_type,
+            "sheet_name": first_item.get("sheet_name", "未填写检测项目"),
+            "section_name": first_item.get("section_name", "未填写标段") or "未填写标段",
+            "client_type": first_item.get("client_type", ""),
+        })
+        continue
         is_nondestructive = any("锚杆无损" in item["sheet_name"] or "锚杆无损" in item["report_table_type"] for item in items)
         is_pullout = any("锚杆拉拔" in item["sheet_name"] or "锚杆拉拔" in item["report_table_type"] for item in items)
         is_grout = any("回填灌浆" in item["sheet_name"] or "回填灌浆" in item["report_table_type"] for item in items)
@@ -2128,6 +2531,56 @@ def build_statistics_docx(tables, stat_params):
     return buffer.getvalue()
 
 
+def safe_excel_sheet_title(title, used_titles):
+    cleaned = re.sub(r"[\[\]\:\*\?\/\\]", "_", str(title or "统计表")).strip() or "统计表"
+    cleaned = cleaned[:31]
+    candidate = cleaned
+    counter = 1
+    while candidate in used_titles:
+        suffix = f"_{counter}"
+        candidate = f"{cleaned[:31 - len(suffix)]}{suffix}"
+        counter += 1
+    used_titles.add(candidate)
+    return candidate
+
+
+def build_statistics_xlsx(tables, stat_params):
+    workbook = Workbook()
+    default_sheet = workbook.active
+    workbook.remove(default_sheet)
+    used_titles = set()
+
+    summary = workbook.create_sheet(safe_excel_sheet_title("导出说明", used_titles))
+    summary.append(["统计时间", f"{stat_params['start_date'].isoformat()} 至 {stat_params['end_date'].isoformat()}"])
+    summary.append(["统计表数量", len(tables)])
+    summary.append([])
+    summary.append(["序号", "分组", "标题", "类型", "行数"])
+    for index, table in enumerate(tables, 1):
+        summary.append([index, table.get("group", ""), table.get("title", ""), table.get("type", ""), len(table.get("rows") or [])])
+
+    for index, table in enumerate(tables, 1):
+        sheet_title = safe_excel_sheet_title(f"{index}_{table.get('sheet_name') or table.get('type')}", used_titles)
+        sheet = workbook.create_sheet(sheet_title)
+        headers = table.get("headers") or []
+        rows = table.get("rows") or []
+        sheet.append([table.get("title", "")])
+        sheet.append(["统计时间", f"{stat_params['start_date'].isoformat()} 至 {stat_params['end_date'].isoformat()}"])
+        sheet.append([])
+        sheet.append(headers)
+        for row in rows:
+            padded = list(row) + [""] * (len(headers) - len(row))
+            sheet.append(padded[: len(headers)])
+        sheet.freeze_panes = "A5"
+        if headers:
+            sheet.auto_filter.ref = f"A4:{col_letter(len(headers))}{max(4, len(rows) + 4)}"
+        for col_index in range(1, max(1, len(headers)) + 1):
+            sheet.column_dimensions[col_letter(col_index)].width = 18
+
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    return buffer.getvalue()
+
+
 def render_item_stat_sections(grouped):
     if not grouped:
         return "<div class='panel'><h3>各检测项分部位统计</h3><p>当前筛选条件下暂无可统计数据。</p></div>"
@@ -2191,13 +2644,8 @@ def render_item_stat_sections(grouped):
               </table>
             """
         else:
-            rows = "".join(render_stat_detail_row(item) for item in items)
-            table_html = f"""
-              <table class="ledger-table">
-                <thead>{STAT_DETAIL_HEADER}</thead>
-                <tbody>{rows}</tbody>
-              </table>
-            """
+            table_type, headers, rows = build_stat_table_data(items)
+            table_html = render_simple_stat_table(headers, rows, table_type)
         blocks.append(
             f"""
             <details class="stat-section" open>
@@ -3494,6 +3942,40 @@ class AppHandler(BaseHTTPRequestHandler):
                 self.send_html(page_layout("导出失败", f"<div class='panel'>导出失败：{html.escape(str(exc))}</div>", user), status=500)
             return
 
+        if self.path == "/statistics_export_excel":
+            user = self.require_user()
+            if not user:
+                return
+            form = cgi.FieldStorage(
+                fp=self.rfile,
+                headers=self.headers,
+                environ={
+                    "REQUEST_METHOD": "POST",
+                    "CONTENT_TYPE": self.headers.get("Content-Type", ""),
+                    "CONTENT_LENGTH": self.headers.get("Content-Length", "0"),
+                },
+            )
+            params = {
+                "report_type": [form_value(form, "report_type", "month")],
+                "start_date": [form_value(form, "start_date", "")],
+                "end_date": [form_value(form, "end_date", "")],
+                "source_type": form.getlist("source_type") if "source_type" in form else [],
+                "sheet_name": form.getlist("sheet_name") if "sheet_name" in form else [],
+            }
+            selected_ids = form.getlist("table_id") if "table_id" in form else []
+            try:
+                stat_params = parse_statistics_params(params)
+                records = collect_stat_records(stat_params["start_date"], stat_params["end_date"], stat_params["source_filters"], stat_params["sheet_filters"])
+                grouped = aggregate_stat_records(records)
+                all_tables = build_statistics_export_tables(grouped)
+                selected = [table for table in all_tables if table["id"] in selected_ids]
+                data = build_statistics_xlsx(selected, stat_params)
+                self.send_xlsx(data, f"检测数据统计结果_{stat_params['start_date'].isoformat()}_{stat_params['end_date'].isoformat()}.xlsx")
+            except Exception as exc:
+                log_error(traceback.format_exc())
+                self.send_html(page_layout("导出失败", f"<div class='panel'>导出失败：{html.escape(str(exc))}</div>", user), status=500)
+            return
+
         if self.path == "/save_sheet_cells":
             user = self.require_user()
             if not user:
@@ -4126,7 +4608,10 @@ def statistics_page(user, params):
         {export_source_inputs}
         {export_sheet_inputs}
         <div class="export-list">{export_options}</div>
-        <p><button type="submit">导出选中统计表为 Word</button></p>
+        <p>
+          <button type="submit">导出选中统计表为 Word</button>
+          <button type="submit" formaction="/statistics_export_excel">导出选中统计表为 Excel</button>
+        </p>
       </form>
     </div>
     {item_sections_html}
