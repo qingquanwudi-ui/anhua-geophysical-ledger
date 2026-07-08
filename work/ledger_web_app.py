@@ -4321,7 +4321,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 stat_params = parse_statistics_params(params)
                 records = collect_stat_records(stat_params["start_date"], stat_params["end_date"], stat_params["source_filters"], stat_params["sheet_filters"])
                 grouped = aggregate_stat_records(records)
-                all_tables = build_statistics_export_tables(grouped) + build_period_report_tables(grouped, stat_params, stat_params["source_filters"], stat_params["sheet_filters"])
+                all_tables = build_statistics_export_tables(grouped)
                 selected = [table for table in all_tables if table["id"] in selected_ids]
                 data = build_statistics_docx(selected, stat_params)
                 self.send_docx(data, f"检测数据统计结果_{stat_params['start_date'].isoformat()}_{stat_params['end_date'].isoformat()}.docx")
@@ -4355,10 +4355,49 @@ class AppHandler(BaseHTTPRequestHandler):
                 stat_params = parse_statistics_params(params)
                 records = collect_stat_records(stat_params["start_date"], stat_params["end_date"], stat_params["source_filters"], stat_params["sheet_filters"])
                 grouped = aggregate_stat_records(records)
-                all_tables = build_statistics_export_tables(grouped) + build_period_report_tables(grouped, stat_params, stat_params["source_filters"], stat_params["sheet_filters"])
+                all_tables = build_statistics_export_tables(grouped)
                 selected = [table for table in all_tables if table["id"] in selected_ids]
                 data = build_statistics_xlsx(selected, stat_params)
                 self.send_xlsx(data, f"检测数据统计结果_{stat_params['start_date'].isoformat()}_{stat_params['end_date'].isoformat()}.xlsx")
+            except Exception as exc:
+                log_error(traceback.format_exc())
+                self.send_html(page_layout("导出失败", f"<div class='panel'>导出失败：{html.escape(str(exc))}</div>", user), status=500)
+            return
+
+        if self.path in ("/unit_statistics_export", "/unit_statistics_export_excel"):
+            user = self.require_user()
+            if not user:
+                return
+            form = cgi.FieldStorage(
+                fp=self.rfile,
+                headers=self.headers,
+                environ={
+                    "REQUEST_METHOD": "POST",
+                    "CONTENT_TYPE": self.headers.get("Content-Type", ""),
+                    "CONTENT_LENGTH": self.headers.get("Content-Length", "0"),
+                },
+            )
+            params = {
+                "report_type": [form_value(form, "report_type", "quarter")],
+                "start_date": [form_value(form, "start_date", "")],
+                "end_date": [form_value(form, "end_date", "")],
+                "source_type": form.getlist("source_type") if "source_type" in form else [],
+                "sheet_name": form.getlist("sheet_name") if "sheet_name" in form else [],
+                "unit_name": form.getlist("unit_name") if "unit_name" in form else [],
+            }
+            selected_ids = form.getlist("table_id") if "table_id" in form else []
+            try:
+                stat_params = parse_statistics_params(params)
+                records = collect_stat_records(stat_params["start_date"], stat_params["end_date"], stat_params["source_filters"], stat_params["sheet_filters"])
+                filtered_records = filter_records_by_units(records, stat_params["unit_filters"])
+                grouped = aggregate_stat_records(filtered_records)
+                all_tables = build_period_report_tables(grouped, stat_params, stat_params["source_filters"], stat_params["sheet_filters"], stat_params["unit_filters"])
+                selected = [table for table in all_tables if table["id"] in selected_ids]
+                filename = f"单位工程季报年报统计_{stat_params['start_date'].isoformat()}_{stat_params['end_date'].isoformat()}"
+                if self.path == "/unit_statistics_export_excel":
+                    self.send_xlsx(build_statistics_xlsx(selected, stat_params), f"{filename}.xlsx")
+                else:
+                    self.send_docx(build_statistics_docx(selected, stat_params), f"{filename}.docx")
             except Exception as exc:
                 log_error(traceback.format_exc())
                 self.send_html(page_layout("导出失败", f"<div class='panel'>导出失败：{html.escape(str(exc))}</div>", user), status=500)
@@ -4937,9 +4976,7 @@ def statistics_page(user, params):
 
     item_sections_html = render_item_stat_sections(grouped)
     section_totals_html = render_section_total_summary(grouped)
-    period_report_tables = build_period_report_tables(grouped, stat_params, source_filters, sheet_filters)
-    period_report_html = render_period_report_sections(period_report_tables)
-    export_tables = build_statistics_export_tables(grouped) + period_report_tables
+    export_tables = build_statistics_export_tables(grouped)
     export_options = render_export_options(export_tables)
     export_source_inputs = form_hidden_inputs("source_type", source_filters)
     export_sheet_inputs = form_hidden_inputs("sheet_name", sheet_filters)
@@ -5004,7 +5041,6 @@ def statistics_page(user, params):
         </p>
       </form>
     </div>
-    {period_report_html}
     {item_sections_html}
     {section_totals_html}
     {statistics_page_script()}
@@ -5139,6 +5175,26 @@ def unit_statistics_page(user, params):
         unit_filters,
     )
     period_report_html = render_period_report_sections(period_report_tables)
+    period_export_html = ""
+    if period_report_tables:
+        period_export_html = f"""
+        <div class="panel">
+          <h3>季报/年报综合表导出</h3>
+          <form method="post" action="/unit_statistics_export">
+            <input type="hidden" name="report_type" value="{html.escape(report_type)}">
+            <input type="hidden" name="start_date" value="{start_date.isoformat()}">
+            <input type="hidden" name="end_date" value="{end_date.isoformat()}">
+            {form_hidden_inputs("source_type", source_filters)}
+            {form_hidden_inputs("sheet_name", sheet_filters)}
+            {form_hidden_inputs("unit_name", unit_filters)}
+            <div class="export-list">{render_export_options(period_report_tables)}</div>
+            <p>
+              <button type="submit">导出选中综合表为 Word</button>
+              <button type="submit" formaction="/unit_statistics_export_excel">导出选中综合表为 Excel</button>
+            </p>
+          </form>
+        </div>
+        """
 
     body = f"""
     <div class="panel">
@@ -5186,6 +5242,7 @@ def unit_statistics_page(user, params):
       <div class="kpi"><span>单位工程</span><strong>{unit_count}</strong></div>
     </div>
     {period_report_html}
+    {period_export_html}
     {unit_project_summary_html}
     {statistics_page_script()}
     """
