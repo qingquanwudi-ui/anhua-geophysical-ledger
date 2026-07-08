@@ -5180,6 +5180,7 @@ def unit_statistics_page(user, params):
         period_export_html = f"""
         <div class="panel">
           <h3>季报/年报综合表导出</h3>
+          <p class="muted">导出内容跟随当前筛选条件；如已选择单位工程，只导出该单位工程相关综合表。</p>
           <form method="post" action="/unit_statistics_export">
             <input type="hidden" name="report_type" value="{html.escape(report_type)}">
             <input type="hidden" name="start_date" value="{start_date.isoformat()}">
@@ -5187,11 +5188,14 @@ def unit_statistics_page(user, params):
             {form_hidden_inputs("source_type", source_filters)}
             {form_hidden_inputs("sheet_name", sheet_filters)}
             {form_hidden_inputs("unit_name", unit_filters)}
-            <div class="export-list">{render_export_options(period_report_tables)}</div>
             <p>
               <button type="submit">导出选中综合表为 Word</button>
               <button type="submit" formaction="/unit_statistics_export_excel">导出选中综合表为 Excel</button>
             </p>
+            <details class="export-project">
+              <summary>选择要导出的综合表</summary>
+              <div class="export-list">{render_export_options(period_report_tables)}</div>
+            </details>
           </form>
         </div>
         """
@@ -5241,8 +5245,8 @@ def unit_statistics_page(user, params):
       <div class="kpi"><span>标段数量</span><strong>{section_count}</strong></div>
       <div class="kpi"><span>单位工程</span><strong>{unit_count}</strong></div>
     </div>
-    {period_report_html}
     {period_export_html}
+    {period_report_html}
     {unit_project_summary_html}
     {statistics_page_script()}
     """
