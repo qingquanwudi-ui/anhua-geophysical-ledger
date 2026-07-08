@@ -3964,8 +3964,8 @@ def page_layout(title, body, user=None):
       <a href="/preview" class="{'active' if title == '台账信息查询' else ''}">原表查看</a>
       <a href="/advanced_query" class="{'active' if title == '高级查询' else ''}">台账查询</a>
       <a href="/quality_checks" class="{'active' if title == '异常数据检查' else ''}">数据质检</a>
-      <a href="/statistics" class="{'active' if title == '检测项目统计' else ''}">检测统计</a>
-      <a href="/unit_statistics" class="{'active' if title == '工程报表统计' else ''}">工程报表</a>
+      <a href="/statistics" class="{'active' if title == '检测数据统计' else ''}">检测数据统计</a>
+      <a href="/unit_statistics" class="{'active' if title == '单位工程统计' else ''}">单位工程统计</a>
       {admin_nav}
       {user_nav}
     </nav>
@@ -4583,11 +4583,11 @@ def statistics_mode_switch(active, stat_params, source_filters, sheet_filters, u
     return f"""
     <div class="stat-switch">
       <a class="{detection_class}" href="{html.escape(detection_url)}">
-        <strong>检测项目统计</strong>
+        <strong>检测数据统计</strong>
         <span>按检测类型、标段、委托类别汇总，适合周报、月报和常规检测数量统计。</span>
       </a>
       <a class="{unit_class}" href="{html.escape(unit_url)}">
-        <strong>工程报表统计</strong>
+        <strong>单位工程统计</strong>
         <span>按单位工程、分部工程和工程部位汇总，承载季报、年报综合表。</span>
       </a>
     </div>
@@ -5021,7 +5021,7 @@ def statistics_page(user, params):
     body = f"""
     {mode_switch_html}
     <div class="panel">
-      <h2>检测项目统计</h2>
+      <h2>检测数据统计</h2>
       <form method="get" action="/statistics">
         <div class="grid">
           <div>
@@ -5061,7 +5061,7 @@ def statistics_page(user, params):
     </div>
     <div class="panel">
       <h3>统计口径</h3>
-      <p class="muted">本页按检测项目组织统计结果；季报、年报正文综合表集中在“工程报表统计”中生成。</p>
+      <p class="muted">本页按检测项目组织统计结果；季报、年报正文综合表集中在“单位工程统计”中生成。</p>
     </div>
     <div class="panel">
       <h3>统计结果导出</h3>
@@ -5082,7 +5082,7 @@ def statistics_page(user, params):
     {section_totals_html}
     {statistics_page_script()}
     """
-    return page_layout("检测项目统计", body, user)
+    return page_layout("检测数据统计", body, user)
 
 
 
@@ -5241,7 +5241,7 @@ def unit_statistics_page(user, params):
     body = f"""
     {mode_switch_html}
     <div class="panel">
-      <h2>工程报表统计</h2>
+      <h2>单位工程统计</h2>
       <form method="get" action="/unit_statistics">
         <div class="grid">
           <div>
@@ -5289,7 +5289,7 @@ def unit_statistics_page(user, params):
     {unit_project_summary_html}
     {statistics_page_script()}
     """
-    return page_layout("工程报表统计", body, user)
+    return page_layout("单位工程统计", body, user)
 
 
 def col_letter(index):
