@@ -3930,11 +3930,6 @@ def page_layout(title, body, user=None):
     .check-line input {{ width: auto; margin-top: 3px; }}
     .tabs a {{ display: inline-block; padding: 6px 10px; margin: 0 6px 8px 0; border: 1px solid #cbd5e1; border-radius: 4px; color: var(--brand); text-decoration: none; background: white; }}
     .tabs a.active {{ background: var(--brand); color: white; border-color: var(--brand); }}
-    .stat-switch {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }}
-    .stat-switch a {{ display: block; padding: 13px 14px; border: 1px solid var(--line); border-radius: 6px; background: white; color: var(--ink); text-decoration: none; box-shadow: 0 8px 24px rgba(23,32,51,.05); }}
-    .stat-switch a.active {{ border-color: var(--brand); background: #edf7f6; box-shadow: inset 4px 0 0 var(--brand); }}
-    .stat-switch strong {{ display: block; font-size: 16px; margin-bottom: 4px; color: #12384a; }}
-    .stat-switch span {{ display: block; color: var(--muted); font-size: 12px; line-height: 1.45; }}
     .ledger-table th, .ledger-table td {{ text-align: center; vertical-align: middle; font-family: var(--table-font); }}
     .ledger-table td {{ line-height: 1.45; }}
     .stat-section {{ border: 1px solid var(--line); border-radius: 6px; margin: 12px 0; background: #fbfdff; overflow: auto; }}
@@ -4566,34 +4561,6 @@ def form_hidden_inputs(name, values):
     return "".join(f"<input type='hidden' name='{html.escape(name)}' value='{html.escape(value)}'>" for value in values)
 
 
-def statistics_mode_switch(active, stat_params, source_filters, sheet_filters, unit_filters=None):
-    base_pairs = [
-        ("report_type", stat_params["report_type"]),
-        ("start_date", stat_params["start_date"].isoformat()),
-        ("end_date", stat_params["end_date"].isoformat()),
-    ]
-    base_pairs.extend(("source_type", value) for value in source_filters)
-    base_pairs.extend(("sheet_name", value) for value in sheet_filters)
-    unit_pairs = list(base_pairs)
-    unit_pairs.extend(("unit_name", value) for value in (unit_filters or []))
-    detection_url = "/statistics?" + urllib.parse.urlencode(base_pairs)
-    unit_url = "/unit_statistics?" + urllib.parse.urlencode(unit_pairs)
-    detection_class = "active" if active == "detection" else ""
-    unit_class = "active" if active == "unit" else ""
-    return f"""
-    <div class="stat-switch">
-      <a class="{detection_class}" href="{html.escape(detection_url)}">
-        <strong>检测数据统计</strong>
-        <span>按检测类型、标段、委托类别汇总，适合周报、月报和常规检测数量统计。</span>
-      </a>
-      <a class="{unit_class}" href="{html.escape(unit_url)}">
-        <strong>单位工程统计</strong>
-        <span>按单位工程、分部工程和工程部位汇总，承载季报、年报综合表。</span>
-      </a>
-    </div>
-    """
-
-
 def sql_quote(value):
     return "'" + str(value).replace("'", "''") + "'"
 
@@ -5016,10 +4983,8 @@ def statistics_page(user, params):
     export_options = render_export_options(export_tables)
     export_source_inputs = form_hidden_inputs("source_type", source_filters)
     export_sheet_inputs = form_hidden_inputs("sheet_name", sheet_filters)
-    mode_switch_html = statistics_mode_switch("detection", stat_params, source_filters, sheet_filters)
 
     body = f"""
-    {mode_switch_html}
     <div class="panel">
       <h2>检测数据统计</h2>
       <form method="get" action="/statistics">
@@ -5236,10 +5201,8 @@ def unit_statistics_page(user, params):
           </form>
         </div>
         """
-    mode_switch_html = statistics_mode_switch("unit", stat_params, source_filters, sheet_filters, unit_filters)
 
     body = f"""
-    {mode_switch_html}
     <div class="panel">
       <h2>单位工程统计</h2>
       <form method="get" action="/unit_statistics">
