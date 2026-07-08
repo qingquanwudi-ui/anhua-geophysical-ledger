@@ -2734,11 +2734,12 @@ def render_period_report_sections(tables):
     if not tables:
         return ""
     blocks = []
-    for table in tables:
+    for index, table in enumerate(tables, 1):
         table_html = render_simple_stat_table(table.get("headers", []), table.get("rows", []), table.get("type", "summary"))
+        open_attr = " open" if index <= 2 else ""
         blocks.append(
             f"""
-            <details class="stat-section" open>
+            <details class="stat-section"{open_attr}>
               <summary>{html.escape(table.get("title", ""))}</summary>
               {table_html}
             </details>
@@ -2746,8 +2747,8 @@ def render_period_report_sections(tables):
         )
     return f"""
     <div class="panel">
-      <h3>季报/年报综合统计表</h3>
-      <p class="muted">按参考季报、年报口径补充生成：合同量完成情况、单位工程检测覆盖情况，以及各检测项目正文统计表。</p>
+      <h3>季报/年报报表统计</h3>
+      <p class="muted">优先显示合同量完成情况和单位工程覆盖情况；各检测项目正文表可按需展开。</p>
       {''.join(blocks)}
     </div>
     """
@@ -3004,7 +3005,7 @@ def render_item_stat_sections(grouped):
     sections = [(section_map[key]["title"], section_map[key]["items"]) for key in arranged_keys]
 
     blocks = []
-    for title, items in sections:
+    for index, (title, items) in enumerate(sections, 1):
         if any("锚杆无损" in item["sheet_name"] or "锚杆无损" in item["report_table_type"] for item in items):
             rows = "".join(render_nondestructive_row(item) for item in items)
             rows += render_nondestructive_total_row(items)
@@ -3034,9 +3035,10 @@ def render_item_stat_sections(grouped):
         else:
             table_type, headers, rows = build_stat_table_data(items)
             table_html = render_simple_stat_table(headers, rows, table_type)
+        open_attr = " open" if index <= 3 else ""
         blocks.append(
             f"""
-            <details class="stat-section" open>
+            <details class="stat-section"{open_attr}>
               <summary>{html.escape(title)}</summary>
               {table_html}
             </details>
@@ -3044,8 +3046,8 @@ def render_item_stat_sections(grouped):
         )
     return f"""
     <div class="panel">
-      <h3>各检测项分部位统计</h3>
-      <p class="muted">每一个标段、检测项目单独成表，块内按工程部位列出统计结果；选择全部委托单位时，不同标段不会混在同一张表中。</p>
+      <h3>检测项目明细统计</h3>
+      <p class="muted">按标段、检测项目和委托类别分组，表内按工程部位列出统计结果。</p>
       {''.join(blocks)}
     </div>
     """
@@ -3119,8 +3121,8 @@ def render_section_total_summary(grouped):
             )
     return f"""
     <div class="panel">
-      <h3>各标段总量汇总统计</h3>
-      <p class="muted">施工委托与监理委托分成两个表格分别汇总。</p>
+      <h3>检测项目总量汇总</h3>
+      <p class="muted">按委托类别汇总各标段、各检测项目的检测组数、施工总数和检测数量。</p>
       {''.join(tables)}
     </div>
     """
@@ -3260,7 +3262,7 @@ def render_unit_project_summary(records, unit_filters=None):
     if not records:
         return """
         <div class="panel">
-          <h3>按单位工程统计</h3>
+          <h3>单位工程基础汇总</h3>
           <p>当前筛选条件下暂无可统计数据。</p>
         </div>
         """
@@ -3301,9 +3303,9 @@ def render_unit_project_summary(records, unit_filters=None):
 
     client_rank = {"施工": 0, "监理": 1, "业主": 2}
     section_blocks = []
-    for section_name, item_map in grouped_sections.items():
+    for section_index, (section_name, item_map) in enumerate(grouped_sections.items(), 1):
         item_blocks = []
-        for item_name, client_map in item_map.items():
+        for item_index, (item_name, client_map) in enumerate(item_map.items(), 1):
             client_blocks = []
             for client_type in sorted(client_map, key=lambda value: client_rank.get(value, 99)):
                 client_totals = client_map[client_type]
@@ -3358,7 +3360,7 @@ def render_unit_project_summary(records, unit_filters=None):
                 )
             item_blocks.append(
                 f"""
-                <details class="stat-section" open>
+                <details class="stat-section"{" open" if section_index == 1 and item_index == 1 else ""}>
                   <summary>检测项目：{html.escape(item_name)}</summary>
                   {''.join(client_blocks)}
                 </details>
@@ -3366,7 +3368,7 @@ def render_unit_project_summary(records, unit_filters=None):
             )
         section_blocks.append(
             f"""
-            <details class="stat-section" open>
+            <details class="stat-section"{" open" if section_index == 1 else ""}>
               <summary>标段：{html.escape(section_name)}</summary>
               {''.join(item_blocks)}
             </details>
@@ -3375,8 +3377,8 @@ def render_unit_project_summary(records, unit_filters=None):
 
     return f"""
     <div class="panel">
-      <h3>按单位工程统计</h3>
-      <p class="muted">本模块独立统计：先分标段，其次分检测项目，再分施工检测和监理检测，表内按单位工程汇总。</p>
+      <h3>单位工程基础汇总</h3>
+      <p class="muted">按标段、检测项目和委托类别组织，表内按单位工程汇总。</p>
       {''.join(section_blocks)}
     </div>
     """
@@ -3855,6 +3857,7 @@ def page_layout(title, body, user=None):
     nav {{ margin-top: 14px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }}
     nav a {{ color: white; text-decoration: none; padding: 7px 12px; border: 1px solid rgba(255,255,255,.22); border-radius: 4px; background: rgba(255,255,255,.08); }}
     nav a:hover {{ background: rgba(255,255,255,.16); }}
+    nav a.active {{ background: rgba(255,255,255,.24); border-color: rgba(255,255,255,.55); }}
     nav span {{ margin-left: auto; color: rgba(255,255,255,.9); }}
     nav span a {{ color: white; padding: 0; border: 0; background: transparent; }}
     .panel {{ background: rgba(255,255,255,.96); border: 1px solid var(--line); border-radius: 6px; padding: 18px; margin-bottom: 16px; box-shadow: 0 8px 24px rgba(23,32,51,.06); }}
@@ -3927,6 +3930,11 @@ def page_layout(title, body, user=None):
     .check-line input {{ width: auto; margin-top: 3px; }}
     .tabs a {{ display: inline-block; padding: 6px 10px; margin: 0 6px 8px 0; border: 1px solid #cbd5e1; border-radius: 4px; color: var(--brand); text-decoration: none; background: white; }}
     .tabs a.active {{ background: var(--brand); color: white; border-color: var(--brand); }}
+    .stat-switch {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }}
+    .stat-switch a {{ display: block; padding: 13px 14px; border: 1px solid var(--line); border-radius: 6px; background: white; color: var(--ink); text-decoration: none; box-shadow: 0 8px 24px rgba(23,32,51,.05); }}
+    .stat-switch a.active {{ border-color: var(--brand); background: #edf7f6; box-shadow: inset 4px 0 0 var(--brand); }}
+    .stat-switch strong {{ display: block; font-size: 16px; margin-bottom: 4px; color: #12384a; }}
+    .stat-switch span {{ display: block; color: var(--muted); font-size: 12px; line-height: 1.45; }}
     .ledger-table th, .ledger-table td {{ text-align: center; vertical-align: middle; font-family: var(--table-font); }}
     .ledger-table td {{ line-height: 1.45; }}
     .stat-section {{ border: 1px solid var(--line); border-radius: 6px; margin: 12px 0; background: #fbfdff; overflow: auto; }}
@@ -3952,12 +3960,12 @@ def page_layout(title, body, user=None):
       <div class="brand-subtitle">Ledger Management System for Geophysical Testing Services during Construction of Hunan Anhua Pumped Storage Power Station</div>
     </div>
     <nav style="margin-top:8px">
-      <a href="/">台账管理</a>
-      <a href="/preview">台账信息查询</a>
-      <a href="/advanced_query">高级查询</a>
-      <a href="/quality_checks">异常检查</a>
-      <a href="/statistics">检测数据统计</a>
-      <a href="/unit_statistics">单位工程统计</a>
+      <a href="/" class="{'active' if title == '台账管理' else ''}">台账管理</a>
+      <a href="/preview" class="{'active' if title == '台账信息查询' else ''}">原表查看</a>
+      <a href="/advanced_query" class="{'active' if title == '高级查询' else ''}">台账查询</a>
+      <a href="/quality_checks" class="{'active' if title == '异常数据检查' else ''}">数据质检</a>
+      <a href="/statistics" class="{'active' if title == '检测项目统计' else ''}">检测统计</a>
+      <a href="/unit_statistics" class="{'active' if title == '工程报表统计' else ''}">工程报表</a>
       {admin_nav}
       {user_nav}
     </nav>
@@ -4558,6 +4566,34 @@ def form_hidden_inputs(name, values):
     return "".join(f"<input type='hidden' name='{html.escape(name)}' value='{html.escape(value)}'>" for value in values)
 
 
+def statistics_mode_switch(active, stat_params, source_filters, sheet_filters, unit_filters=None):
+    base_pairs = [
+        ("report_type", stat_params["report_type"]),
+        ("start_date", stat_params["start_date"].isoformat()),
+        ("end_date", stat_params["end_date"].isoformat()),
+    ]
+    base_pairs.extend(("source_type", value) for value in source_filters)
+    base_pairs.extend(("sheet_name", value) for value in sheet_filters)
+    unit_pairs = list(base_pairs)
+    unit_pairs.extend(("unit_name", value) for value in (unit_filters or []))
+    detection_url = "/statistics?" + urllib.parse.urlencode(base_pairs)
+    unit_url = "/unit_statistics?" + urllib.parse.urlencode(unit_pairs)
+    detection_class = "active" if active == "detection" else ""
+    unit_class = "active" if active == "unit" else ""
+    return f"""
+    <div class="stat-switch">
+      <a class="{detection_class}" href="{html.escape(detection_url)}">
+        <strong>检测项目统计</strong>
+        <span>按检测类型、标段、委托类别汇总，适合周报、月报和常规检测数量统计。</span>
+      </a>
+      <a class="{unit_class}" href="{html.escape(unit_url)}">
+        <strong>工程报表统计</strong>
+        <span>按单位工程、分部工程和工程部位汇总，承载季报、年报综合表。</span>
+      </a>
+    </div>
+    """
+
+
 def sql_quote(value):
     return "'" + str(value).replace("'", "''") + "'"
 
@@ -4980,10 +5016,12 @@ def statistics_page(user, params):
     export_options = render_export_options(export_tables)
     export_source_inputs = form_hidden_inputs("source_type", source_filters)
     export_sheet_inputs = form_hidden_inputs("sheet_name", sheet_filters)
+    mode_switch_html = statistics_mode_switch("detection", stat_params, source_filters, sheet_filters)
 
     body = f"""
+    {mode_switch_html}
     <div class="panel">
-      <h2>检测数据统计</h2>
+      <h2>检测项目统计</h2>
       <form method="get" action="/statistics">
         <div class="grid">
           <div>
@@ -5022,9 +5060,8 @@ def statistics_page(user, params):
       <div class="kpi"><span>工程部位</span><strong>{unit_count}</strong></div>
     </div>
     <div class="panel">
-      <h3>月报第五章表格口径统计</h3>
-      <p class="muted">当前按 5 月月报第五章表格类型汇总：锚杆无损检测完成情况、锚杆拉拔检测完成情况，并按标段、施工/监理委托、工程部位分类。</p>
-      <p class="muted">锚杆无损表使用“施工数量、检测数量、抽检比例、一类至四类、合格率”；锚杆拉拔表使用“施工数量、检测数量、检测比例、锚杆直径、设计拉拔力、最小值、最大值、合格率”。</p>
+      <h3>统计口径</h3>
+      <p class="muted">本页按检测项目组织统计结果；季报、年报正文综合表集中在“工程报表统计”中生成。</p>
     </div>
     <div class="panel">
       <h3>统计结果导出</h3>
@@ -5045,7 +5082,7 @@ def statistics_page(user, params):
     {section_totals_html}
     {statistics_page_script()}
     """
-    return page_layout("检测数据统计", body, user)
+    return page_layout("检测项目统计", body, user)
 
 
 
@@ -5199,10 +5236,12 @@ def unit_statistics_page(user, params):
           </form>
         </div>
         """
+    mode_switch_html = statistics_mode_switch("unit", stat_params, source_filters, sheet_filters, unit_filters)
 
     body = f"""
+    {mode_switch_html}
     <div class="panel">
-      <h2>单位工程统计</h2>
+      <h2>工程报表统计</h2>
       <form method="get" action="/unit_statistics">
         <div class="grid">
           <div>
@@ -5250,7 +5289,7 @@ def unit_statistics_page(user, params):
     {unit_project_summary_html}
     {statistics_page_script()}
     """
-    return page_layout("单位工程统计", body, user)
+    return page_layout("工程报表统计", body, user)
 
 
 def col_letter(index):
