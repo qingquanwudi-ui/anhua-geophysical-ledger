@@ -1630,6 +1630,68 @@ def record_location_text(record):
     return f"{record.get('original_filename', '')} / {record.get('sheet_name', '')} / 第{record.get('row_index', '')}行"
 
 
+def duplicate_context_summaries(records):
+    grouped = {}
+    order = []
+    for record in records:
+        key = (record.get("file_id"), record.get("sheet_id"))
+        if key not in grouped:
+            grouped[key] = {
+                "record": record,
+                "section_name": record.get("section_name", ""),
+                "sheet_name": record.get("sheet_name", ""),
+                "dates": [],
+                "construction_qty": 0,
+                "testing_qty": 0,
+                "locations": [],
+            }
+            order.append(key)
+        item = grouped[key]
+        append_unique_text(item["dates"], query_record_date_text(record))
+        item["construction_qty"] += record.get("construction_qty", 0) or 0
+        item["testing_qty"] += record.get("testing_qty", 0) or 0
+        append_unique_text(item["locations"], record_location_text(record))
+    summaries = []
+    for key in order:
+        item = grouped[key]
+        summaries.append({
+            "record": item["record"],
+            "section_name": item["section_name"],
+            "sheet_name": item["sheet_name"],
+            "date_text": "/".join(item["dates"]),
+            "quantity_text": f"施工{format_stat_number(item['construction_qty'])}/检测{format_stat_number(item['testing_qty'])}",
+            "location_text": item["locations"][0] if item["locations"] else record_location_text(item["record"]),
+        })
+    return summaries
+
+
+def conflict_value_details(summaries, key):
+    values = []
+    for item in summaries:
+        value = display_cell_text(item.get(key, "")).strip()
+        if value and value not in values:
+            values.append(value)
+    return values
+
+
+def duplicate_conflict_details(records):
+    summaries = duplicate_context_summaries(records)
+    if len(summaries) <= 1:
+        return [], summaries
+    checks = [
+        ("标段", "section_name"),
+        ("检测类型", "sheet_name"),
+        ("日期", "date_text"),
+        ("数量", "quantity_text"),
+    ]
+    conflicts = []
+    for label, key in checks:
+        values = conflict_value_details(summaries, key)
+        if len(values) > 1:
+            conflicts.append(f"{label}不一致（{'、'.join(values[:6])}）")
+    return conflicts, summaries
+
+
 def add_quality_issue(issues, issue_type, level, message, record=None, file_row=None):
     source = record or file_row or {}
     issues.append({
@@ -1723,12 +1785,15 @@ def build_quality_issues():
             if construction_qty > 0 and testing_qty == 0:
                 add_quality_issue(issues, "quantity_abnormal", "中", "有施工数量但检测数量为 0。", record=record)
     for report_no, items in report_map.items():
-        if len(items) > 1:
-            locations = "；".join(record_location_text(item) for item in items[:5])
-            add_quality_issue(issues, "duplicate_report", "高", f"报告编号 {report_no} 出现 {len(items)} 次：{locations}", record=items[0])
+        conflicts, summaries = duplicate_conflict_details(items)
+        if conflicts:
+            locations = "；".join(summary["location_text"] for summary in summaries[:5])
+            add_quality_issue(issues, "report_no_conflict", "高", f"报告编号 {report_no} 存在冲突：{'；'.join(conflicts)}。涉及位置：{locations}", record=items[0])
     for entrust_no, items in entrust_map.items():
-        if len(items) > 1:
-            add_quality_issue(issues, "duplicate_entrust", "中", f"委托编号 {entrust_no} 出现 {len(items)} 次，请确认是否为同一委托下多条检测记录。", record=items[0])
+        conflicts, summaries = duplicate_conflict_details(items)
+        if conflicts:
+            locations = "；".join(summary["location_text"] for summary in summaries[:5])
+            add_quality_issue(issues, "entrust_no_conflict", "中", f"委托编号 {entrust_no} 存在冲突：{'；'.join(conflicts)}。涉及位置：{locations}", record=items[0])
     return records, issues
 
 
@@ -1736,8 +1801,8 @@ def issue_type_label(issue_type):
     return {
         "metadata_mismatch": "文件信息不一致", "sheet_missing": "工作表缺失", "missing_report": "报告编号缺失",
         "missing_entrust": "委托编号缺失", "missing_date": "检测日期缺失", "missing_result": "检测结果缺失",
-        "missing_location": "工程部位缺失", "quantity_abnormal": "数量异常", "duplicate_report": "报告编号重复",
-        "duplicate_entrust": "委托编号重复",
+        "missing_location": "工程部位缺失", "quantity_abnormal": "数量异常", "report_no_conflict": "报告编号冲突",
+        "entrust_no_conflict": "委托编号冲突",
     }.get(issue_type, issue_type)
 
 
@@ -5171,7 +5236,7 @@ def quality_checks_page(user):
     body = f"""
     <div class="panel">
       <h2>异常数据检查</h2>
-      <p class="muted">系统会检查报告编号重复、编号缺失、日期缺失、数量异常、检测结果缺失，以及文件名与标段/委托类型不一致等问题。</p>
+      <p class="muted">系统会检查同编号数据冲突、编号缺失、日期缺失、数量异常、检测结果缺失，以及文件名与标段/委托类型不一致等问题。同一编号在多个台账中标段、检测类型、日期和数量一致时不视为异常。</p>
     </div>
     <div class="kpi-grid">
       <div class="kpi"><span>检查记录</span><strong>{len(records)}</strong></div>
