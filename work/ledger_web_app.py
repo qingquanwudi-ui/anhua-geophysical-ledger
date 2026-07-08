@@ -895,6 +895,7 @@ def collect_stat_records(start_date, end_date, source_filters=None, sheet_filter
             grout_station_col = find_col_by_keywords(header_map, ["检查桩号"], summary_start_col)
             grout_elevation_col = find_col_by_keywords(header_map, ["孔口高程"], summary_start_col)
             grout_pressure_col = find_col_by_keywords(header_map, ["设计压力"], summary_start_col)
+            grout_measured_pressure_col = find_col_by_keywords(header_map, ["实测压力"], summary_start_col)
             grout_requirement_col = find_col_by_keywords(header_map, ["设计要求"], summary_start_col)
             grout_volume_col = find_col_by_keywords_excluding(header_map, ["初始10min内注浆量", "注浆量"], ["设计要求", "规定压力"], summary_start_col)
             grout_result_col = find_col_by_keywords(header_map, ["检测结果"], summary_start_col)
@@ -997,6 +998,8 @@ def collect_stat_records(start_date, end_date, source_filters=None, sheet_filter
                         "grout_elevation_1": display_cell_text(cells.get((row_index, grout_elevation_col), "")) if grout_elevation_col else "",
                         "grout_elevation_2": display_cell_text(cells.get((row_index, grout_elevation_col + 1), "")) if grout_elevation_col else "",
                         "grout_pressure": display_cell_text(cells.get((row_index, grout_pressure_col), "")) if grout_pressure_col else "",
+                        "grout_measured_pressure_1": display_cell_text(cells.get((row_index, grout_measured_pressure_col), "")) if grout_measured_pressure_col else "",
+                        "grout_measured_pressure_2": display_cell_text(cells.get((row_index, grout_measured_pressure_col + 1), "")) if grout_measured_pressure_col else "",
                         "grout_requirement": display_cell_text(cells.get((row_index, grout_requirement_col), "")) if grout_requirement_col else "",
                         "grout_volume_1": display_cell_text(cells.get((row_index, grout_volume_col), "")) if grout_volume_col else "",
                         "grout_volume_2": display_cell_text(cells.get((row_index, grout_volume_col + 1), "")) if grout_volume_col else "",
@@ -1108,6 +1111,8 @@ def aggregate_stat_records(records):
                 "grout_elevation_1": record.get("grout_elevation_1", ""),
                 "grout_elevation_2": record.get("grout_elevation_2", ""),
                 "grout_pressure": record.get("grout_pressure", ""),
+                "grout_measured_pressure_1": record.get("grout_measured_pressure_1", ""),
+                "grout_measured_pressure_2": record.get("grout_measured_pressure_2", ""),
                 "grout_requirement": record.get("grout_requirement", ""),
                 "grout_volume_1": record.get("grout_volume_1", ""),
                 "grout_volume_2": record.get("grout_volume_2", ""),
@@ -1766,9 +1771,10 @@ PULLOUT_HEADER = (
 GROUT_HEADER = (
     "<tr><th rowspan='2'>工程部位</th><th colspan='2'>检查孔编号</th><th colspan='2'>检查桩号</th>"
     "<th colspan='2'>孔口高程</th><th rowspan='2'>设计压力<br>(Mpa）</th>"
+    "<th colspan='2'>实测压力<br>(Mpa）</th>"
     "<th rowspan='2'>设计要求（规定压力下，初始10min内注浆量）(L)</th>"
     "<th colspan='2'>初始10min内注浆量（L)</th><th rowspan='2'>检测结果</th></tr>"
-    "<tr><th>1</th><th>2</th><th>1</th><th>2</th><th>1</th><th>2</th><th>1</th><th>2</th></tr>"
+    "<tr><th>1</th><th>2</th><th>1</th><th>2</th><th>1</th><th>2</th><th>1</th><th>2</th><th>1</th><th>2</th></tr>"
 )
 
 
@@ -1819,6 +1825,8 @@ def render_grout_row(item):
         f"<td>{stat_text(item.get('grout_elevation_1', ''))}</td>"
         f"<td>{stat_text(item.get('grout_elevation_2', ''))}</td>"
         f"<td>{stat_text(item.get('grout_pressure', ''))}</td>"
+        f"<td>{stat_text(item.get('grout_measured_pressure_1', ''))}</td>"
+        f"<td>{stat_text(item.get('grout_measured_pressure_2', ''))}</td>"
         f"<td>{stat_text(item.get('grout_requirement', ''))}</td>"
         f"<td>{stat_text(format_decimal_number(item.get('grout_volume_1', ''), 3))}</td>"
         f"<td>{stat_text(format_decimal_number(item.get('grout_volume_2', ''), 3))}</td>"
@@ -1972,7 +1980,7 @@ def build_stat_table_data(items):
         rows.append(build_total_row(items, len(headers)))
         return kind, headers, rows
     if kind == "grout":
-        headers = ["工程部位", "检查孔编号1", "检查孔编号2", "检查桩号1", "检查桩号2", "孔口高程1", "孔口高程2", "设计压力(Mpa）", "设计要求", "初始10min注浆量1(L)", "初始10min注浆量2(L)", "检测结果"]
+        headers = ["工程部位", "检查孔编号1", "检查孔编号2", "检查桩号1", "检查桩号2", "孔口高程1", "孔口高程2", "设计压力(Mpa）", "实测压力1(Mpa）", "实测压力2(Mpa）", "设计要求", "初始10min注浆量1(L)", "初始10min注浆量2(L)", "检测结果"]
         rows = [
             [
                 item["part_name"],
@@ -1983,6 +1991,8 @@ def build_stat_table_data(items):
                 item.get("grout_elevation_1", ""),
                 item.get("grout_elevation_2", ""),
                 item.get("grout_pressure", ""),
+                item.get("grout_measured_pressure_1", ""),
+                item.get("grout_measured_pressure_2", ""),
                 item.get("grout_requirement", ""),
                 format_decimal_number(item.get("grout_volume_1", ""), 3),
                 format_decimal_number(item.get("grout_volume_2", ""), 3),
@@ -2471,13 +2481,13 @@ def fill_doc_table_headers(doc_table, table_type, headers):
             set_doc_cell_text(doc_table.cell(1, index), value, bold=True)
         return 2
     if table_type == "grout":
-        for index in (0, 7, 8, 11):
+        for index in (0, 7, 10, 13):
             doc_table.cell(0, index).merge(doc_table.cell(1, index))
-        for start, end in ((1, 2), (3, 4), (5, 6), (9, 10)):
+        for start, end in ((1, 2), (3, 4), (5, 6), (8, 9), (11, 12)):
             doc_table.cell(0, start).merge(doc_table.cell(0, end))
-        for index, value in ((0, "工程部位"), (1, "检查孔编号"), (3, "检查桩号"), (5, "孔口高程"), (7, "设计压力\n(Mpa）"), (8, "设计要求（规定压力下，初始10min内注浆量）(L)"), (9, "初始10min内注浆量（L)"), (11, "检测结果")):
+        for index, value in ((0, "工程部位"), (1, "检查孔编号"), (3, "检查桩号"), (5, "孔口高程"), (7, "设计压力\n(Mpa）"), (8, "实测压力\n(Mpa）"), (10, "设计要求（规定压力下，初始10min内注浆量）(L)"), (11, "初始10min内注浆量（L)"), (13, "检测结果")):
             set_doc_cell_text(doc_table.cell(0, index), value, bold=True)
-        for index, value in ((1, "1"), (2, "2"), (3, "1"), (4, "2"), (5, "1"), (6, "2"), (9, "1"), (10, "2")):
+        for index, value in ((1, "1"), (2, "2"), (3, "1"), (4, "2"), (5, "1"), (6, "2"), (8, "1"), (9, "2"), (11, "1"), (12, "2")):
             set_doc_cell_text(doc_table.cell(1, index), value, bold=True)
         return 2
     for col_index, header in enumerate(headers):
