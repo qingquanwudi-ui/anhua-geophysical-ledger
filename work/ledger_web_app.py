@@ -718,6 +718,68 @@ def parse_number_value(value):
         return 0
 
 
+def unique_ordered_values(values):
+    result = []
+    seen = set()
+    for value in values:
+        text = str(value).strip()
+        if text and text not in seen:
+            seen.add(text)
+            result.append(text)
+    return result
+
+
+def normalize_design_length_text(value):
+    text = display_cell_text(value).strip()
+    if not text:
+        return ""
+    normalized = (
+        text.replace("Φ", "φ")
+        .replace("Ф", "φ")
+        .replace("￠", "φ")
+        .replace("，", "/")
+        .replace("、", "/")
+        .replace("；", "/")
+        .replace(";", "/")
+        .replace(" ", "")
+    )
+    without_diameter = re.sub(r"φ\s*\d+(?:\.\d+)?", "", normalized, flags=re.IGNORECASE)
+    numbers = re.findall(r"(\d+(?:\.\d+)?)\s*[mM米]", without_diameter)
+    if not numbers:
+        numbers = re.findall(r"\d+(?:\.\d+)?", without_diameter)
+    return "/".join(unique_ordered_values(numbers)) if numbers else text
+
+
+def normalize_design_diameter_text(value):
+    text = display_cell_text(value).strip()
+    if not text:
+        return ""
+    normalized = (
+        text.replace("Φ", "φ")
+        .replace("Ф", "φ")
+        .replace("￠", "φ")
+        .replace("，", "/")
+        .replace("、", "/")
+        .replace("；", "/")
+        .replace(";", "/")
+        .replace(" ", "")
+    )
+    phi_numbers = re.findall(r"φ\s*(\d+(?:\.\d+)?)", normalized, flags=re.IGNORECASE)
+    if phi_numbers:
+        return "/".join(unique_ordered_values(phi_numbers))
+
+    without_material_grade = re.sub(r"HRB\d+[A-Z]?", "", normalized, flags=re.IGNORECASE)
+    candidates = []
+    for number in re.findall(r"\d+(?:\.\d+)?", without_material_grade):
+        try:
+            numeric_value = float(number)
+        except ValueError:
+            continue
+        if 10 <= numeric_value <= 80:
+            candidates.append(str(int(numeric_value)) if numeric_value.is_integer() else number)
+    return "/".join(unique_ordered_values(candidates)) if candidates else text
+
+
 def find_col_by_keywords(header_map, keywords, min_col=1):
     best_col = None
     best_score = 0
@@ -882,8 +944,6 @@ def collect_stat_records(start_date, end_date, source_filters=None, sheet_filter
             construction_col = find_col_by_keywords(header_map, ["施工数量", "施工量"], summary_start_col)
             testing_col = find_col_by_keywords(header_map, ["检测数量", "检测量"], summary_start_col)
             ratio_col = find_col_by_keywords(header_map, ["抽检比例", "检测比例"], summary_start_col)
-            length_col = find_col_by_keywords(header_map, ["杆长", "锚杆长度", "长度"], summary_start_col)
-            diameter_col = find_col_by_keywords(header_map, ["锚杆直径", "直径"], summary_start_col)
             design_force_col = find_col_by_keywords(header_map, ["设计拉拔力", "合格抗拔力"], summary_start_col)
             min_value_col = find_col_by_keywords(header_map, ["最小值"], summary_start_col)
             max_value_col = find_col_by_keywords(header_map, ["最大值"], summary_start_col)
@@ -911,6 +971,9 @@ def collect_stat_records(start_date, end_date, source_filters=None, sheet_filter
             mileage_col = find_col_by_keywords(header_map, ["检测里程", "里程"])
             anchor_no_col = find_col_by_keywords(header_map, ["锚索编号", "锚杆编号"])
             spec_col = find_col_by_keywords(header_map, ["规格/型号", "锚索规格", "锚杆规格", "规格"])
+            length_col = find_col_by_keywords(header_map, ["锚杆长度", "锚索长度", "杆长", "桩    长", "桩长", "长度"])
+            diameter_col = find_col_by_keywords(header_map, ["锚杆直径", "锚索直径", "直径"])
+            diameter_source_col = diameter_col or spec_col
             anchor_length_col = find_col_by_keywords(header_map, ["锚索长度", "锚杆长度", "杆长", "桩    长", "桩长"])
             anchorage_length_col = find_col_by_keywords(header_map, ["锚固长度"])
             free_length_col = find_col_by_keywords(header_map, ["自由段长度"])
@@ -959,8 +1022,8 @@ def collect_stat_records(start_date, end_date, source_filters=None, sheet_filter
                         "construction_qty": parse_number_value(cells.get((row_index, construction_col), "")) if construction_col else 0,
                         "testing_qty": parse_number_value(cells.get((row_index, testing_col), "")) if testing_col else 0,
                         "ratio_value": parse_number_value(cells.get((row_index, ratio_col), "")) if ratio_col else 0,
-                        "length_value": display_cell_text(cells.get((row_index, length_col), "")) if length_col else "",
-                        "diameter_value": display_cell_text(cells.get((row_index, diameter_col), "")) if diameter_col else "",
+                        "length_value": normalize_design_length_text(cells.get((row_index, length_col), "")) if length_col else "",
+                        "diameter_value": normalize_design_diameter_text(cells.get((row_index, diameter_source_col), "")) if diameter_source_col else "",
                         "design_force_value": display_cell_text(cells.get((row_index, design_force_col), "")) if design_force_col else "",
                         "hole_no": display_cell_text(cells.get((row_index, hole_no_col), "")) if hole_no_col else "",
                         "depth_start_1": display_cell_text(cells.get((row_index, depth_start_1_col), "")) if depth_start_1_col else "",
