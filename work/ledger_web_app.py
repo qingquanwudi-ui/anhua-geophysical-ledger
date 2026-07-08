@@ -877,6 +877,7 @@ def collect_stat_records(start_date, end_date, source_filters=None, sheet_filter
             summary_start_col = 20
             date_col = find_col_by_keywords(header_map, ["日期", "检测日期", "试验日期"])
             unit_col = find_col_by_keywords(header_map, ["单位工程", "单元工程"])
+            sub_unit_col = find_col_by_keywords(header_map, ["分部工程"])
             location_col = find_col_by_keywords(header_map, ["工程部位", "部位", "施工部位"], summary_start_col)
             construction_col = find_col_by_keywords(header_map, ["施工数量", "施工量"], summary_start_col)
             testing_col = find_col_by_keywords(header_map, ["检测数量", "检测量"], summary_start_col)
@@ -937,6 +938,7 @@ def collect_stat_records(start_date, end_date, source_filters=None, sheet_filter
                 if not detect_date or detect_date < start_date or detect_date > end_date:
                     continue
                 unit_name = display_cell_text(cells.get((row_index, unit_col), "")) if unit_col else "未识别单元工程"
+                sub_unit_name = display_cell_text(cells.get((row_index, sub_unit_col), "")) if sub_unit_col else ""
                 location_name = display_cell_text(cells.get((row_index, location_col), "")) if location_col else ""
                 part_name = location_name or unit_name or "未填写工程部位"
                 records.append(
@@ -948,6 +950,7 @@ def collect_stat_records(start_date, end_date, source_filters=None, sheet_filter
                         "sheet_name": sheet_display_name,
                         "report_table_type": report_table_type,
                         "unit_name": unit_name or "",
+                        "sub_unit_name": sub_unit_name,
                         "location_name": location_name,
                         "part_name": part_name,
                         "report_no": display_cell_text(cells.get((row_index, report_no_col), "")) if report_no_col else "",
@@ -1064,6 +1067,7 @@ def aggregate_stat_records(records):
                 "sheet_name": record["sheet_name"],
                 "report_table_type": record["report_table_type"],
                 "unit_name": record["unit_name"],
+                "sub_unit_name": record.get("sub_unit_name", ""),
                 "location_name": record["location_name"],
                 "part_name": record["part_name"],
                 "row_count": 0,
@@ -1075,6 +1079,7 @@ def aggregate_stat_records(records):
                 "ratio_value": 0,
                 "report_nos": [],
                 "entrust_nos": [],
+                "sub_unit_names": [],
                 "result_texts": [],
                 "hole_nos": [],
                 "depth_ranges": [],
@@ -1093,6 +1098,7 @@ def aggregate_stat_records(records):
                 "category_texts": [],
                 "detection_type_texts": [],
                 "remark_texts": [],
+                "length_values": [],
                 "diameter_values": [],
                 "design_force_values": [],
                 "min_value_texts": [],
@@ -1128,6 +1134,7 @@ def aggregate_stat_records(records):
         item["ratio_value"] = record["ratio_value"] or item["ratio_value"]
         append_unique_text(item["report_nos"], record.get("report_no", ""))
         append_unique_text(item["entrust_nos"], record.get("entrust_no", ""))
+        append_unique_text(item["sub_unit_names"], record.get("sub_unit_name", ""))
         append_unique_text(item["result_texts"], record.get("result_text", ""))
         append_unique_text(item["hole_nos"], record.get("hole_no", ""))
         append_unique_text(item["depth_ranges"], stat_depth_range_text(record))
@@ -1146,6 +1153,7 @@ def aggregate_stat_records(records):
         append_unique_text(item["category_texts"], record.get("category_text", ""))
         append_unique_text(item["detection_type_texts"], record.get("detection_type_text", ""))
         append_unique_text(item["remark_texts"], record.get("remark_text", ""))
+        append_unique_text(item["length_values"], record.get("length_value", ""))
         if record["diameter_value"]:
             if record["diameter_value"] not in item["diameter_values"]:
                 item["diameter_values"].append(record["diameter_value"])
@@ -1167,6 +1175,9 @@ def aggregate_stat_records(records):
     for item in grouped.values():
         item["report_no_text"] = "\n".join(item.pop("report_nos"))
         item["entrust_no_text"] = "\n".join(item.pop("entrust_nos"))
+        sub_unit_names = item.pop("sub_unit_names")
+        if sub_unit_names:
+            item["sub_unit_name"] = "\n".join(sub_unit_names)
         item["result_text"] = "\n".join(item.pop("result_texts"))
         item["hole_no_text"] = "\n".join(item.pop("hole_nos"))
         item["depth_range_text"] = "\n".join(item.pop("depth_ranges"))
@@ -1185,6 +1196,7 @@ def aggregate_stat_records(records):
         item["category_text"] = "\n".join(item.pop("category_texts"))
         item["detection_type_text"] = "\n".join(item.pop("detection_type_texts"))
         item["remark_text"] = "\n".join(item.pop("remark_texts"))
+        item["length_text"] = "\n".join(item.pop("length_values"))
         item["diameter_text"] = "\n".join(item.pop("diameter_values"))
         item["design_force_text"] = "\n".join(item.pop("design_force_values"))
         item["min_value_text"] = "\n".join(item.pop("min_value_texts"))
@@ -2373,6 +2385,371 @@ def build_section_total_tables(grouped):
 
 def build_statistics_export_tables(grouped):
     return build_item_stat_tables(grouped) + build_section_total_tables(grouped)
+
+
+def is_period_report_type(report_type):
+    return report_type in {"quarter", "year"}
+
+
+def period_completion_header(report_type):
+    if report_type == "year":
+        return "年完成量"
+    if report_type == "quarter":
+        return "本季度完成量"
+    return "本期完成量"
+
+
+def pass_rate_from_counts(item):
+    testing = item.get("testing_qty", 0)
+    if item.get("pass_rate_value"):
+        return format_stat_number(item["pass_rate_value"])
+    if not testing:
+        return ""
+    if item.get("class_three_qty", 0) + item.get("class_four_qty", 0) == 0:
+        return "100"
+    return ""
+
+
+def item_report_kind(item):
+    return stat_table_kind([item])
+
+
+def report_unit_name(item):
+    return item.get("unit_name") or item.get("part_name") or "未填写单位工程"
+
+
+def report_sub_unit_name(item):
+    return item.get("sub_unit_name") or item.get("location_name") or item.get("part_name") or ""
+
+
+def period_table_title(stat_params, name):
+    report_label = {"quarter": "季报", "year": "年报"}.get(stat_params.get("report_type"), "本期")
+    return f"{report_label}{name}"
+
+
+def build_period_contract_completion_table(grouped, cumulative_grouped, stat_params):
+    period_index = {}
+    for item in grouped:
+        key = (
+            item.get("section_name") or "未填写标段",
+            item.get("client_type") or "未填写委托类别",
+            item.get("report_table_type") or item.get("sheet_name") or "未填写检测项目",
+        )
+        total = period_index.setdefault(key, {"testing_qty": 0, "row_count": 0})
+        total["testing_qty"] += item.get("testing_qty", 0)
+        total["row_count"] += item.get("row_count", 0)
+
+    cumulative_index = {}
+    for item in cumulative_grouped:
+        key = (
+            item.get("section_name") or "未填写标段",
+            item.get("client_type") or "未填写委托类别",
+            item.get("report_table_type") or item.get("sheet_name") or "未填写检测项目",
+        )
+        total = cumulative_index.setdefault(key, {"construction_qty": 0, "testing_qty": 0, "row_count": 0})
+        total["construction_qty"] += item.get("construction_qty", 0)
+        total["testing_qty"] += item.get("testing_qty", 0)
+        total["row_count"] += item.get("row_count", 0)
+
+    keys = list(cumulative_index)
+    for key in period_index:
+        if key not in cumulative_index:
+            keys.append(key)
+
+    rows = []
+    for index, key in enumerate(keys, 1):
+        section_name, client_type, item_name = key
+        cumulative = cumulative_index.get(key, {})
+        period = period_index.get(key, {})
+        construction = cumulative.get("construction_qty", 0)
+        cumulative_done = cumulative.get("testing_qty", 0)
+        period_done = period.get("testing_qty", 0)
+        rows.append([
+            str(index),
+            section_name,
+            client_type,
+            item_name,
+            "项",
+            format_stat_number(construction),
+            format_stat_number(cumulative_done),
+            format_stat_number(period_done),
+            ratio_text(cumulative_done, construction),
+        ])
+
+    headers = ["编号", "标段", "委托类别", "项目名称", "单位", "工程总量", "累计完成量", period_completion_header(stat_params["report_type"]), "累计完成比例(%)"]
+    return {
+        "id": "period_contract_completion",
+        "group": "季报/年报综合统计",
+        "title": period_table_title(stat_params, "已开展工作完成合同量情况"),
+        "headers": headers,
+        "rows": rows or [["暂无数据"] + [""] * (len(headers) - 1)],
+        "type": "summary",
+        "sheet_name": "季报年报综合统计",
+        "section_name": "全部标段",
+        "client_type": "全部委托",
+    }
+
+
+def build_period_unit_coverage_table(grouped, stat_params):
+    totals = {}
+    order = []
+    for item in grouped:
+        key = (
+            item.get("section_name") or "未填写标段",
+            item.get("client_type") or "未填写委托类别",
+            item.get("report_table_type") or item.get("sheet_name") or "未填写检测项目",
+            report_unit_name(item),
+        )
+        if key not in totals:
+            totals[key] = {
+                "row_count": 0,
+                "construction_qty": 0,
+                "testing_qty": 0,
+                "class_one_qty": 0,
+                "class_two_qty": 0,
+                "class_three_qty": 0,
+                "class_four_qty": 0,
+            }
+            order.append(key)
+        total = totals[key]
+        total["row_count"] += item.get("row_count", 0)
+        total["construction_qty"] += item.get("construction_qty", 0)
+        total["testing_qty"] += item.get("testing_qty", 0)
+        total["class_one_qty"] += item.get("class_one_qty", 0)
+        total["class_two_qty"] += item.get("class_two_qty", 0)
+        total["class_three_qty"] += item.get("class_three_qty", 0)
+        total["class_four_qty"] += item.get("class_four_qty", 0)
+
+    rows = []
+    for index, key in enumerate(order, 1):
+        section_name, client_type, item_name, unit_name = key
+        total = totals[key]
+        rows.append([
+            str(index),
+            section_name,
+            client_type,
+            item_name,
+            unit_name,
+            str(total["row_count"]),
+            format_stat_number(total["construction_qty"]),
+            format_stat_number(total["testing_qty"]),
+            ratio_text(total["testing_qty"], total["construction_qty"]),
+            format_stat_number(total["class_one_qty"]),
+            format_stat_number(total["class_two_qty"]),
+            format_stat_number(total["class_three_qty"]),
+            format_stat_number(total["class_four_qty"]),
+        ])
+
+    headers = ["序号", "标段", "委托类别", "检测项目", "单位工程/单元工程", "记录数", "施工数量", "检测数量", "检测覆盖率(%)", "I类", "II类", "III类", "IV类"]
+    return {
+        "id": "period_unit_coverage",
+        "group": "季报/年报综合统计",
+        "title": period_table_title(stat_params, "单位工程检测覆盖情况"),
+        "headers": headers,
+        "rows": rows or [["暂无数据"] + [""] * (len(headers) - 1)],
+        "type": "summary",
+        "sheet_name": "季报年报综合统计",
+        "section_name": "全部标段",
+        "client_type": "全部委托",
+    }
+
+
+def period_detail_headers(kind):
+    if kind == "nondestructive":
+        return ["单位工程", "分部工程", "杆长(m)", "直径(mm)", "代表数量(根)", "检测数量(根)", "检测频率(%)", "I", "II", "III", "IV", "合格率(%)"]
+    if kind == "pullout":
+        return ["工程部位", "施工数量(根)", "检测数量(根)", "检测比例(%)", "锚杆直径(mm)", "设计拉拔力值(KN)", "最小值", "最大值", "合格率(%)"]
+    if kind == "grout":
+        return ["工程部位", "检查孔编号1", "检查孔编号2", "检查桩号1", "检查桩号2", "孔口高程1", "孔口高程2", "设计压力(Mpa)", "实测压力1(Mpa)", "实测压力2(Mpa)", "设计要求", "初始10min注浆量1(L)", "初始10min注浆量2(L)", "检测结果"]
+    if kind == "borehole_imaging":
+        return ["工程单位", "分部工程", "钻孔编号", "检测里程(m)", "检测情况", "报告编号"]
+    if kind in {"anchor_cable_tension", "prestressed_anchor"}:
+        return ["单元工程", "分部工程", "施工数量", "检测数量", "锚索/锚杆编号", "长度(m)", "检测结果"]
+    if kind == "pile_integrity":
+        return ["单元工程", "分部工程", "工程部位", "检测根数", "综合评判类别", "检测结果"]
+    if kind == "relaxation_circle":
+        return ["工程部位", "检测孔数量", "检测结果", "报告编号"]
+    if kind == "elastic_wave":
+        return ["工程部位", "组数", "检测类型", "检测结果", "报告编号"]
+    return ["工程部位", "检测组数", "施工数量", "检测数量", "检测比例(%)", "检测结果", "报告编号"]
+
+
+def period_detail_row(item, kind):
+    if kind == "nondestructive":
+        return [
+            report_unit_name(item),
+            report_sub_unit_name(item),
+            item.get("anchor_length_text", "") or item.get("length_text", ""),
+            item.get("diameter_text", ""),
+            format_stat_number(item.get("construction_qty", 0)),
+            format_stat_number(item.get("testing_qty", 0)),
+            ratio_text(item.get("testing_qty", 0), item.get("construction_qty", 0)),
+            format_stat_number(item.get("class_one_qty", 0)),
+            format_stat_number(item.get("class_two_qty", 0)),
+            format_stat_number(item.get("class_three_qty", 0)),
+            format_stat_number(item.get("class_four_qty", 0)),
+            pass_rate_from_counts(item),
+        ]
+    if kind == "pullout":
+        return [
+            item.get("part_name", ""),
+            format_stat_number(item.get("construction_qty", 0)),
+            format_stat_number(item.get("testing_qty", 0)),
+            ratio_text(item.get("testing_qty", 0), item.get("construction_qty", 0)),
+            item.get("diameter_text", ""),
+            item.get("design_force_text", ""),
+            plain_stat_min_text(item),
+            plain_stat_max_text(item),
+            pass_rate_from_counts(item),
+        ]
+    if kind == "grout":
+        return [
+            item.get("part_name", ""),
+            item.get("grout_hole_1", ""),
+            item.get("grout_hole_2", ""),
+            item.get("grout_station_1", ""),
+            item.get("grout_station_2", ""),
+            item.get("grout_elevation_1", ""),
+            item.get("grout_elevation_2", ""),
+            item.get("grout_pressure", ""),
+            item.get("grout_measured_pressure_1", ""),
+            item.get("grout_measured_pressure_2", ""),
+            item.get("grout_requirement", ""),
+            format_decimal_number(item.get("grout_volume_1", ""), 3),
+            format_decimal_number(item.get("grout_volume_2", ""), 3),
+            item.get("grout_result", "") or item.get("result_text", ""),
+        ]
+    if kind == "borehole_imaging":
+        return [
+            report_unit_name(item),
+            report_sub_unit_name(item),
+            item.get("hole_no_text", ""),
+            format_stat_number(preferred_qty(item, "mileage_qty", "testing_qty")),
+            item.get("result_text", "") or item.get("remark_text", ""),
+            item.get("report_no_text", ""),
+        ]
+    if kind in {"anchor_cable_tension", "prestressed_anchor"}:
+        return [
+            report_unit_name(item),
+            report_sub_unit_name(item),
+            format_stat_number(item.get("construction_qty", 0)),
+            format_stat_number(item.get("testing_qty", 0)),
+            item.get("anchor_no_text", ""),
+            item.get("anchor_length_text", ""),
+            item.get("result_text", ""),
+        ]
+    if kind == "pile_integrity":
+        return [
+            report_unit_name(item),
+            report_sub_unit_name(item),
+            item.get("part_name", ""),
+            format_stat_number(item.get("testing_qty", 0)),
+            item.get("category_text", ""),
+            item.get("result_text", ""),
+        ]
+    if kind == "relaxation_circle":
+        return [
+            item.get("part_name", ""),
+            format_stat_number(preferred_qty(item, "hole_count", "testing_qty", "row_count")),
+            item.get("result_text", ""),
+            item.get("report_no_text", ""),
+        ]
+    if kind == "elastic_wave":
+        return [
+            item.get("part_name", ""),
+            format_stat_number(preferred_qty(item, "group_count", "testing_qty", "row_count")),
+            item.get("detection_type_text", ""),
+            item.get("result_text", ""),
+            item.get("report_no_text", ""),
+        ]
+    return [
+        item.get("part_name", ""),
+        str(item.get("row_count", 0)),
+        format_stat_number(item.get("construction_qty", 0)),
+        format_stat_number(item.get("testing_qty", 0)),
+        ratio_text(item.get("testing_qty", 0), item.get("construction_qty", 0)),
+        item.get("result_text", ""),
+        item.get("report_no_text", ""),
+    ]
+
+
+def build_period_detail_tables(grouped, stat_params):
+    table_map = {}
+    order = []
+    for item in grouped:
+        kind = item_report_kind(item)
+        key = (
+            item.get("section_name") or "未填写标段",
+            item.get("client_type") or "未填写委托类别",
+            item.get("sheet_name") or item.get("report_table_type") or "未填写检测项目",
+            item.get("report_table_type") or item.get("sheet_name") or "未填写检测项目",
+            kind,
+        )
+        if key not in table_map:
+            section_name, client_type, sheet_name, item_name, _ = key
+            table_map[key] = {
+                "section_name": section_name,
+                "client_type": client_type,
+                "sheet_name": sheet_name,
+                "item_name": item_name,
+                "kind": kind,
+                "items": [],
+            }
+            order.append(key)
+        table_map[key]["items"].append(item)
+
+    tables = []
+    for index, key in enumerate(order, 1):
+        table = table_map[key]
+        headers = period_detail_headers(table["kind"])
+        rows = [period_detail_row(item, table["kind"]) for item in table["items"]]
+        title = period_table_title(stat_params, f"{table['section_name']} {table['item_name']}[{table['client_type']}]")
+        tables.append({
+            "id": f"period_detail_{index}",
+            "group": "季报/年报正文统计表",
+            "title": title,
+            "headers": headers,
+            "rows": rows or [["暂无数据"] + [""] * (len(headers) - 1)],
+            "type": "grout" if table["kind"] == "grout" else "summary",
+            "sheet_name": table["sheet_name"],
+            "section_name": table["section_name"],
+            "client_type": table["client_type"],
+        })
+    return tables
+
+
+def build_period_report_tables(grouped, stat_params, source_filters=None, sheet_filters=None):
+    if not is_period_report_type(stat_params.get("report_type")):
+        return []
+    cumulative_records = collect_stat_records(dt.date(1900, 1, 1), stat_params["end_date"], source_filters, sheet_filters)
+    cumulative_grouped = aggregate_stat_records(cumulative_records)
+    return [
+        build_period_contract_completion_table(grouped, cumulative_grouped, stat_params),
+        build_period_unit_coverage_table(grouped, stat_params),
+    ] + build_period_detail_tables(grouped, stat_params)
+
+
+def render_period_report_sections(tables):
+    if not tables:
+        return ""
+    blocks = []
+    for table in tables:
+        table_html = render_simple_stat_table(table.get("headers", []), table.get("rows", []), table.get("type", "summary"))
+        blocks.append(
+            f"""
+            <details class="stat-section" open>
+              <summary>{html.escape(table.get("title", ""))}</summary>
+              {table_html}
+            </details>
+            """
+        )
+    return f"""
+    <div class="panel">
+      <h3>季报/年报综合统计表</h3>
+      <p class="muted">按参考季报、年报口径补充生成：合同量完成情况、单位工程检测覆盖情况，以及各检测项目正文统计表。</p>
+      {''.join(blocks)}
+    </div>
+    """
 
 
 def render_export_options(tables):
@@ -3943,7 +4320,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 stat_params = parse_statistics_params(params)
                 records = collect_stat_records(stat_params["start_date"], stat_params["end_date"], stat_params["source_filters"], stat_params["sheet_filters"])
                 grouped = aggregate_stat_records(records)
-                all_tables = build_statistics_export_tables(grouped)
+                all_tables = build_statistics_export_tables(grouped) + build_period_report_tables(grouped, stat_params, stat_params["source_filters"], stat_params["sheet_filters"])
                 selected = [table for table in all_tables if table["id"] in selected_ids]
                 data = build_statistics_docx(selected, stat_params)
                 self.send_docx(data, f"检测数据统计结果_{stat_params['start_date'].isoformat()}_{stat_params['end_date'].isoformat()}.docx")
@@ -3977,7 +4354,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 stat_params = parse_statistics_params(params)
                 records = collect_stat_records(stat_params["start_date"], stat_params["end_date"], stat_params["source_filters"], stat_params["sheet_filters"])
                 grouped = aggregate_stat_records(records)
-                all_tables = build_statistics_export_tables(grouped)
+                all_tables = build_statistics_export_tables(grouped) + build_period_report_tables(grouped, stat_params, stat_params["source_filters"], stat_params["sheet_filters"])
                 selected = [table for table in all_tables if table["id"] in selected_ids]
                 data = build_statistics_xlsx(selected, stat_params)
                 self.send_xlsx(data, f"检测数据统计结果_{stat_params['start_date'].isoformat()}_{stat_params['end_date'].isoformat()}.xlsx")
@@ -4559,7 +4936,9 @@ def statistics_page(user, params):
 
     item_sections_html = render_item_stat_sections(grouped)
     section_totals_html = render_section_total_summary(grouped)
-    export_tables = build_statistics_export_tables(grouped)
+    period_report_tables = build_period_report_tables(grouped, stat_params, source_filters, sheet_filters)
+    period_report_html = render_period_report_sections(period_report_tables)
+    export_tables = build_statistics_export_tables(grouped) + period_report_tables
     export_options = render_export_options(export_tables)
     export_source_inputs = form_hidden_inputs("source_type", source_filters)
     export_sheet_inputs = form_hidden_inputs("sheet_name", sheet_filters)
@@ -4624,6 +5003,7 @@ def statistics_page(user, params):
         </p>
       </form>
     </div>
+    {period_report_html}
     {item_sections_html}
     {section_totals_html}
     {statistics_page_script()}
