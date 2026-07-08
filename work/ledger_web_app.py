@@ -2718,10 +2718,11 @@ def build_period_detail_tables(grouped, stat_params):
     return tables
 
 
-def build_period_report_tables(grouped, stat_params, source_filters=None, sheet_filters=None):
+def build_period_report_tables(grouped, stat_params, source_filters=None, sheet_filters=None, unit_filters=None):
     if not is_period_report_type(stat_params.get("report_type")):
         return []
     cumulative_records = collect_stat_records(dt.date(1900, 1, 1), stat_params["end_date"], source_filters, sheet_filters)
+    cumulative_records = filter_records_by_units(cumulative_records, unit_filters)
     cumulative_grouped = aggregate_stat_records(cumulative_records)
     return [
         build_period_contract_completion_table(grouped, cumulative_grouped, stat_params),
@@ -5129,6 +5130,15 @@ def unit_statistics_page(user, params):
         "全部单位工程",
     )
     unit_project_summary_html = render_unit_project_summary(records, unit_filters)
+    filtered_grouped = aggregate_stat_records(filtered_records)
+    period_report_tables = build_period_report_tables(
+        filtered_grouped,
+        stat_params,
+        source_filters,
+        sheet_filters,
+        unit_filters,
+    )
+    period_report_html = render_period_report_sections(period_report_tables)
 
     body = f"""
     <div class="panel">
@@ -5175,6 +5185,7 @@ def unit_statistics_page(user, params):
       <div class="kpi"><span>标段数量</span><strong>{section_count}</strong></div>
       <div class="kpi"><span>单位工程</span><strong>{unit_count}</strong></div>
     </div>
+    {period_report_html}
     {unit_project_summary_html}
     {statistics_page_script()}
     """
